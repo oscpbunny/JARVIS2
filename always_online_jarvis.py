@@ -116,15 +116,20 @@ def speak_sentence(sentence):
     print(f"\n[JARVIS]: {clean}", flush=True)
     signals.set_state("speaking")
     try:
-        if duplex_engine is not None:
-            duplex_engine.speak(clean)
-        else:
+        # Try Kokoro TTS via audio_engine first (simpler, fewer device conflicts)
+        generator = tts_pipeline(clean, voice='bm_lewis', speed=1.15)
+        audio_engine.play_stream(generator)
+    except Exception as e1:
+        try:
+            print(f"[TTS neural error ({e1}), falling back...]", flush=True)
             generator = tts_pipeline(clean, voice='bm_lewis', speed=1.15)
             audio_engine.play_stream(generator)
-    except Exception as e:
-        print(f"TTS neural error ({e}), falling back to native macOS speech...", flush=True)
-        import subprocess
-        subprocess.run(["say", "-v", "Daniel", "-r", "190", clean], timeout=8)
+        except Exception as e2:
+            print(f"[TTS error: {e2}]", flush=True)
+            import subprocess
+            subprocess.run(["say", "-v", "Daniel", "-r", "190", clean], timeout=8)
+    finally:
+        signals.set_state("idle")
 
 def record_utterance(stream, trigger_chunk, silence_thresh=170):
     signals.set_state("listening")
