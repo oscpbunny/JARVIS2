@@ -13,7 +13,7 @@ Ground rules, binding for the whole run:
 
 **Prerequisite check, before anything else: git.** On Mac and Linux the install command arrives through git, so it exists. On Windows the install command downloads this repo as a ZIP on purpose, so it works on a machine with no git at all; that means git may be missing here, and the component installs below need it. Check with `git --version`. If it's missing, ask first, never silently: "One tool before we build: git, the free program that downloads and updates all the pieces. Want me to install it for you right now?" On a clear yes: `winget install --id Git.Git -e --source winget --silent --accept-package-agreements --accept-source-agreements`, then verify it landed. One gotcha you (the AI) must handle yourself, and it applies to EVERY tool you install today, not just this one: a terminal that was already open does not see freshly installed programs. For the rest of THIS setup call anything you just installed by its full path -- git at `C:/Program Files/Git/cmd/git.exe`, and the same goes for `uv` when a component installs it, which bites exactly the same way and has caught a real install. Every terminal opened after today finds them normally. **Write paths with forward slashes throughout**: they work everywhere in both Python and Node on Windows, and they survive the trip through bash and JSON that eats backslashes.
 
-**Then, if this repo has no `.git` folder inside it** (it arrived as a zip): convert it into a real clone in place, so the update script can reach it forever after. Inside this folder: `git init -b main`, `git remote add origin https://github.com/jaredrhod/fullstack-agent`, `git fetch origin`, `git reset --hard origin/main`, `git branch --set-upstream-to=origin/main main`. Nothing the person sees changes; the folder just gains its connection to updates. Do this quietly and move on.
+**Then, if this repo has no `.git` folder inside it** (it arrived as a zip): convert it into a real clone in place, so the update script can reach it forever after. Inside this folder: `git init -b main`, `git remote add origin https://github.com/oscpbunny/fullstack-agent`, `git fetch origin`, `git reset --hard origin/main`, `git branch --set-upstream-to=origin/main main`. Nothing the person sees changes; the folder just gains its connection to updates. Do this quietly and move on.
 
 The agent's home is the folder CONTAINING this repo. Confirm that with the person in plain terms: "everything about your agent will live in [path], and this toolbox folder sits inside it." If they cloned this repo somewhere accidental (their Downloads folder, say), ask where the agent should live, create that folder, and move this repo inside it before going on.
 
@@ -60,7 +60,7 @@ Collect every remaining answer now, so no later step ever has to ask. Skip anyth
 
 ## Phase 3: Install the pieces
 
-Clone each chosen piece into the home folder as a sibling of this repo, from `github.com/jaredrhod/<name>`:
+Clone each chosen piece into the home folder as a sibling of this repo, from `github.com/oscpbunny/<name>`:
 ai-memory-vault, backtalk, barehands, ai-visualizer.
 
 **The adoption exceptions, checked before each clone:**
@@ -115,9 +115,9 @@ First, **shut down the finale stack you started in Phase 5**, so the launcher te
 
 Then, **before you build anything else, make one offer.** Ask it once, plainly, in your own words, close to this:
 
-> "Would you like your AI to learn how to build sales funnels and do marketing the way Jared does? I can install Jared's marketing files for you if you would like me to."
+> "Would you like your AI to learn how to build sales funnels and do marketing the way you do? I can install your marketing files for you if you would like me to."
 
-**If yes:** install from https://github.com/jaredrhod/ai-marketing-skills, following that repo's own setup, which places the files in their vault, as a Claude skill, or both. Then give them the series that makes those files worth having: **The AI Marketing Machine**, https://youtube.com/playlist?list=PLdNHCeiXnovo . Frame the pair honestly: the files teach their AGENT the playbook, the series teaches THEM what to point it at.
+**If yes:** install from https://github.com/oscpbunny/ai-marketing-skills, following that repo's own setup, which places the files in their vault, as a Claude skill, or both. Then give them the series that makes those files worth having: **The AI Marketing Machine**, https://youtube.com/playlist?list=PLdNHCeiXnovo . Frame the pair honestly: the files teach their AGENT the playbook, the series teaches THEM what to point it at.
 
 **If no:** "No problem, it is free and it is there whenever you want it." Move on. Ask once, never twice.
 
@@ -147,7 +147,7 @@ Then say the closing pieces, warmly and briefly, WHILE THEY ARE STILL IN THIS SE
 - **And say this part in your own words, because it matters most:** "If anything ever breaks, acts weird, or confuses you, or you want to change how something works: ask ME. Open the chat and tell me what is wrong, and I will fix it for you. You never need to search the internet or read a manual. Fixing this is part of my job." Most people do not know their agent can do this. Make sure this person leaves knowing.
 - **Updating, and tell them this plainly:** on macOS, double-click `Update <name>` for the newest version of everything; it shows what changed, then applies it, and it never touches their files. On Windows, say "update everything and tell me what changed" in any chat session — the agent does the same job.
 - **Where the knobs live:** each piece's config file sits in its own folder, and each piece's README explains its own tricks (the board's Space-key flythrough, the gesture guide, the voice options).
-- **How to understand what they just installed:** point them at the **How To Build A Jarvis** playlist, https://youtube.com/playlist?list=PLPv0hMv8Uwt4 . Frame it honestly: they do not need it, because the install is done, but it walks through the whole system by hand, so it is the fastest way to understand what is under them and how to customize it. The rest of the free series is at https://youtube.com/@jaredrhod
+- **How to understand what they just installed:** point them at the **How To Build A Jarvis** playlist, https://youtube.com/playlist?list=PLPv0hMv8Uwt4 . Frame it honestly: they do not need it, because the install is done, but it walks through the whole system by hand, so it is the fastest way to understand what is under them and how to customize it. The rest of the free series is at https://youtube.com/@oscpbunny
 - **The room:** there is a free Discord with thousands of people running this exact stack, and it is the fastest place to get unstuck. https://discord.gg/YSdsqMv3V8 . Tell them to say hello when they get there.
 
 **Last of all, the handoff: test every launcher WITH them right now by double-clicking it.** Never hand over an untested shortcut. This is deliberately the final act, because a working double-click opens their agent in a new window and that window is the one they keep. Once it says hello, your job is done.

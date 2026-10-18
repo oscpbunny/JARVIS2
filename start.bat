@@ -1,6 +1,6 @@
 @echo off
 rem fullstack-agent: give your AI a full stack — memory, voice, face, hands.
-rem Copyright (C) 2026 Jared Rhodenizer
+rem Copyright (C) 2026 oscpbunny
 rem
 rem This program is free software: you can redistribute it and/or modify
 rem it under the terms of the GNU Affero General Public License as published

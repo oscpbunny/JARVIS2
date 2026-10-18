@@ -18,7 +18,7 @@ Then the download step failed before Claude Code started, and the error is in yo
 
 ## Windows says "claude is not recognized," or the Claude Code install "isn't doing anything"
 
-Both are the same story. The Claude Code installer on Windows (the [start page](https://jaredrhod.com/start) command) downloads about 330 MB and prints nothing while it does: no progress bar, just a blinking cursor, for a few minutes, longer on slow wifi. People close the window because it looks dead, and then nothing is installed, so the next paste says `claude` is not recognized. Paste the start page command again and leave the window alone until it prints "Installation complete!" and then "All set." Then come back here and paste the install command again. It is safe to re-run: it skips the download it already did.
+Both are the same story. The Claude Code installer on Windows (the [start page](https://oscpbunny.com/start) command) downloads about 330 MB and prints nothing while it does: no progress bar, just a blinking cursor, for a few minutes, longer on slow wifi. People close the window because it looks dead, and then nothing is installed, so the next paste says `claude` is not recognized. Paste the start page command again and leave the window alone until it prints "Installation complete!" and then "All set." Then come back here and paste the install command again. It is safe to re-run: it skips the download it already did.
 
 ## The Mac says "xcrun: error: invalid active developer path"
 

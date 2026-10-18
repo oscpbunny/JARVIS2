@@ -1,6 +1,6 @@
 @echo off
 rem fullstack-agent -- updating has moved. This script does nothing now.
-rem Copyright (C) 2026 Jared Rhodenizer
+rem Copyright (C) 2026 oscpbunny
 rem SPDX-License-Identifier: AGPL-3.0-or-later
 rem
 rem WHY THIS IS EMPTY, because the reason is worth knowing before anyone
@@ -30,7 +30,7 @@ rem
 rem If this folder has no .git yet because it arrived as a zip, an agent
 rem can wire it up once, keeping your config files:
 rem   git init -b main
-rem   git remote add origin https://github.com/jaredrhod/fullstack-agent
+rem   git remote add origin https://github.com/oscpbunny/fullstack-agent
 rem   git fetch origin
 rem   git reset --hard origin/main
 

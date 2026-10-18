@@ -1,6 +1,6 @@
 #!/bin/bash
 # fullstack-agent: give your AI a full stack — memory, voice, face, hands.
-# Copyright (C) 2026 Jared Rhodenizer
+# Copyright (C) 2026 oscpbunny
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published
@@ -40,7 +40,7 @@ main() {
       echo "== $repo (wiring to updates)"
       [ -n "$CFG" ] && [ -f "$HOME_DIR/$repo/$CFG" ] && cp "$HOME_DIR/$repo/$CFG" "$HOME_DIR/$repo/$CFG.mine"
       git -C "$HOME_DIR/$repo" init -q -b main
-      git -C "$HOME_DIR/$repo" remote add origin "https://github.com/jaredrhod/$repo"
+      git -C "$HOME_DIR/$repo" remote add origin "https://github.com/oscpbunny/$repo"
       git -C "$HOME_DIR/$repo" fetch -q origin
       git -C "$HOME_DIR/$repo" reset -q --hard origin/main
       git -C "$HOME_DIR/$repo" branch -q --set-upstream-to=origin/main main
