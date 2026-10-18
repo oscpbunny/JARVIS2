@@ -29,21 +29,28 @@ HOME_DIR="$(dirname "$HERE")"
 # it executes; updating this very file mid-run can then never garble it.
 main() {
   for repo in fullstack-agent ai-memory-vault backtalk barehands ai-visualizer; do
-    [ -d "$HOME_DIR/$repo/.git" ] || continue
-    echo "== $repo"
-    # show what is arriving BEFORE applying it, so "what changed?"
-    # answers itself on every update
-    git -C "$HOME_DIR/$repo" fetch -q origin 2>/dev/null
-    git -C "$HOME_DIR/$repo" log --oneline "..@{u}" 2>/dev/null | sed "s/^/   new: /"
-    # one-time migration (2026-08): the per-piece configs moved out of git
-    # tracking so an update can never collide with personal settings. If
-    # this clone still tracks one, lift it aside, pull, put it back as-is.
     CFG=""
     case "$repo" in
       backtalk) CFG="backtalk.json" ;;
       barehands) CFG="barehands.json" ;;
       ai-visualizer) CFG="ai-visualizer.json" ;;
     esac
+    [ -d "$HOME_DIR/$repo" ] || continue
+    if [ ! -d "$HOME_DIR/$repo/.git" ]; then
+      echo "== $repo (wiring to updates)"
+      [ -n "$CFG" ] && [ -f "$HOME_DIR/$repo/$CFG" ] && cp "$HOME_DIR/$repo/$CFG" "$HOME_DIR/$repo/$CFG.mine"
+      git -C "$HOME_DIR/$repo" init -q -b main
+      git -C "$HOME_DIR/$repo" remote add origin "https://github.com/jaredrhod/$repo"
+      git -C "$HOME_DIR/$repo" fetch -q origin
+      git -C "$HOME_DIR/$repo" reset -q --hard origin/main
+      git -C "$HOME_DIR/$repo" branch -q --set-upstream-to=origin/main main
+      [ -n "$CFG" ] && [ -f "$HOME_DIR/$repo/$CFG.mine" ] && mv "$HOME_DIR/$repo/$CFG.mine" "$HOME_DIR/$repo/$CFG"
+      echo "   wired to updates. everything is current."
+      continue
+    fi
+    echo "== $repo"
+    git -C "$HOME_DIR/$repo" fetch -q origin 2>/dev/null
+    git -C "$HOME_DIR/$repo" log --oneline "..@{u}" 2>/dev/null | sed "s/^/   new: /"
     MIGRATE=0
     if [ -n "$CFG" ] && [ -f "$HOME_DIR/$repo/$CFG" ] && \
        git -C "$HOME_DIR/$repo" ls-files --error-unmatch "$CFG" >/dev/null 2>&1; then
