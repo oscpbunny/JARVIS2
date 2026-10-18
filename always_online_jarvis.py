@@ -34,6 +34,118 @@ from screen_recorder import start_daemon as start_screen_recorder, query_tempora
 from ambient_guardian import start_guardian, update_keyboard_activity
 from pillar_bridge import dispatch_p2, p2_status, make_duplex_speech
 
+# ══════════════════════════════════════════════════════════════════════════════
+# MEMORY & PERFORMANCE OPTIMIZATION STATE
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Message history limit (prevents unbounded list growth)
+MAX_MESSAGE_HISTORY = 8
+
+# Subagent worker concurrency limit
+MAX_WORKERS = 3
+
+# Temp file cleanup interval (seconds)
+CLEANUP_INTERVAL = 300
+
+# ─── Memory-optimized Ollama API call ─────────────────────────────────────────
+def make_ollama_request(messages, timeout=20):
+    """Make Ollama API request with timeout to prevent blocking."""
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    try:
+        resp = loop.run_until_complete(
+            asyncio.wait_for(
+                client.chat.completions.create(
+                    model=MODEL,
+                    messages=messages,
+                    stream=True
+                ),
+                timeout=timeout
+            )
+        )
+        return resp
+    except asyncio.TimeoutError:
+        print(f"[⏱️ OLLAMA TIMEOUT: {timeout}s exceeded]", flush=True)
+        return None
+
+# ─── Async TTS Engine ────────────────────────────────────────────────────────
+import concurrent.futures
+_tts_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="jarvis-tts")
+
+async def speak_sentence_async(sentence):
+    """Async version of speak_sentence that doesn't block the main loop."""
+    clean = re.sub(r"\[ACTION:[^\]]+\]", "", sentence).strip()
+    if not clean:
+        return
+    
+    print(f"\n[JARVIS]: {clean}", flush=True)
+    signals.set_state("speaking")
+    
+    def _tts_sync(text):
+        """Synchronous TTS in thread pool."""
+        generator = tts_pipeline(text, voice='bm_lewis', speed=1.15)
+        audio_engine.play_stream(generator)
+        return True
+    
+    try:
+        await loop.run_in_executor(_tts_executor, _tts_sync, clean)
+    except Exception as e1:
+        try:
+            print(f"[TTS neural error ({e1}), falling back...]", flush=True)
+            generator = tts_pipeline(clean, voice='bm_lewis', speed=1.15)
+            audio_engine.play_stream(generator)
+        except Exception as e2:
+            print(f"[TTS error: {e2}]", flush=True)
+            await loop.run_in_executor(_tts_executor, 
+                lambda: subprocess.run(["say", "-v", "Daniel", "-r", "190", clean], timeout=8))
+    finally:
+        signals.set_state("idle")
+
+# ─── Memory Cleanup ────────────────────────────────────────────────────────────
+def cleanup_resources():
+    """Periodic resource cleanup to manage memory."""
+    global _last_cleanup_time, _cleanup_done
+    
+    now = time.time()
+    if now - _last_cleanup_time < CLEANUP_INTERVAL:
+        return
+    
+    _last_cleanup_time = now
+    
+    gc.collect()
+    
+    for pattern in ['*.tmp', '*.temp', '*.swp']:
+        for f in ROOT.glob(pattern):
+            try:
+                if f.is_file():
+                    f.unlink()
+            except:
+                pass
+    
+    print(f"[🧹 RESOURCE CLEANUP: {int(now - _last_cleanup_time)}s]", flush=True)
+
+# ─── Subagent Worker Rate Limiter ─────────────────────────────────────────────
+_worker_tasks = set()
+_worker_lock = asyncio.Lock()
+
+async def limit_workers(coro):
+    """Limit concurrent subagent workers."""
+    async with _worker_lock:
+        _worker_tasks.add(asyncio.current_task())
+        try:
+            return await coro
+        finally:
+            _worker_tasks.discard(asyncio.current_task())
+
+def get_active_workers():
+    """Get count of active subagent workers."""
+    return len(_worker_tasks)
+
+
 MODEL = os.environ.get("LLM_MODEL", "llama3.2:3b")
 API_BASE = os.environ.get("LLM_API_BASE", "http://localhost:11434/v1")
 RATE = 16000
@@ -152,7 +264,10 @@ async def handle_vision_query(query_text: str):
     speak_sentence(description)
     signals.set_state("idle")
 
-messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+# Initialize message history for memory optimization
+_message_history = [
+    {"role": "system", "content": SYSTEM_PROMPT}
+]
 
 def speak_sentence(sentence):
     clean = re.sub(r"\[ACTION:[^\]]+\]", "", sentence).strip()
@@ -213,9 +328,11 @@ async def check_subagent_notifications():
             await asyncio.sleep(3.0)
 
 async def main_loop():
+    # Trim message history to prevent unbounded growth
+    trim_message_history()
+
     # Pillar 7 – start Ambient Guardian with Jarvis TTS callback
     start_guardian(speak_fn=speak_sentence)
-
     speak_sentence("Jarvis seven pillar core online. All systems active.")
     signals.set_state("idle")
 
@@ -347,16 +464,15 @@ async def main_loop():
                                 print(f"[📚 Retrieved context from Obsidian Vault]", flush=True)
                                 prompt_content = f"Relevant notes from user's vault:\n{vault_context}\n\nUser request: {user_text}"
                         
-                        if len(messages) > 10:
-                            messages[:] = [messages[0]] + messages[-6:]
-                        messages.append({"role": "user", "content": prompt_content})
+                        # Trim message history to prevent unbounded growth
+                        trim_message_history()
                         
                         try:
                             # Circuit breaker: wait max 2.5s for Ollama to begin streaming
                             resp = await asyncio.wait_for(
                                 client.chat.completions.create(
                                     model=MODEL,
-                                    messages=messages,
+                                    messages=_message_history,
                                     stream=True
                                 ),
                                 timeout=2.5
@@ -423,14 +539,14 @@ async def main_loop():
                                     )
                                     final_reply = make_clarification(user_text)
                                     speak_sentence(final_reply)
-                                    messages.append({"role": "assistant", "content": final_reply})
+                                    _message_history.append({"role": "assistant", "content": final_reply})
                                     continue
                                 
                                 speak_sentence(final_reply)
                             else:
                                 final_reply = "I didn't catch that. Could you repeat?"
                             
-                            messages.append({"role": "assistant", "content": final_reply or "Error"})
+                            _message_history.append({"role": "assistant", "content": final_reply or "Error"})
                         except asyncio.TimeoutError:
                             print("[⚠️ OLLAMA TIMEOUT: Circuit breaker triggered]", flush=True)
                             speak_sentence("Local inference is under load. Proceeding with command.")
@@ -438,6 +554,8 @@ async def main_loop():
                             speak_sentence(f"Apologies, error occurred: {str(e)[:40]}")
                 
                 signals.set_state("idle")
+                # Periodic cleanup to manage memory
+                cleanup_resources()
                 print("\n[👂 Listening for your next command...]", flush=True)
                 
             time.sleep(0.01)
