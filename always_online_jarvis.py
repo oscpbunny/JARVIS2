@@ -328,6 +328,9 @@ async def check_subagent_notifications():
             await asyncio.sleep(3.0)
 
 async def main_loop():
+    # Optimize model loading for faster response
+    _optimize_ollama_load()
+
     # Trim message history to prevent unbounded growth
     trim_message_history()
 
@@ -467,11 +470,15 @@ async def main_loop():
                         # Trim message history to prevent unbounded growth
                         trim_message_history()
                         
+                        # Route query to best model for optimization
+                        route_model = _route_to_best_model(user_text, query_type="default")
+                        print(f"[🧠 Routing query to: {route_model}]", flush=True)
+
                         try:
                             # Circuit breaker: wait max 2.5s for Ollama to begin streaming
                             resp = await asyncio.wait_for(
                                 client.chat.completions.create(
-                                    model=MODEL,
+                                    model=route_model,
                                     messages=_message_history,
                                     stream=True
                                 ),
@@ -569,3 +576,143 @@ async def main_loop():
 
 if __name__ == "__main__":
     asyncio.run(main_loop())
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MODEL MANAGEMENT & ROUTER (Performance Optimizations)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _get_ollama_models():
+    """Get list of running Ollama models."""
+    try:
+        result = subprocess.run(
+            ["curl", "-s", "http://localhost:11434/api/tags"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            import json
+            data = json.loads(result.stdout)
+            return [m["name"] for m in data.get("models", [])]
+    except:
+        pass
+    return []
+
+def _check_model_loaded(model_name):
+    """Check if a model is already loaded."""
+    models = _get_ollama_models()
+    return model_name in models
+
+def _start_model(model_name):
+    """Start a specific Ollama model."""
+    try:
+        if _check_model_loaded(model_name):
+            return True
+        
+        # Start ollama serve in background
+        subprocess.Popen(
+            ["ollama", "serve"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True
+        )
+        # Wait for ollama to initialize
+        time.sleep(3)
+        
+        # Start the specific model
+        subprocess.Popen(
+            ["ollama", "run", model_name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True
+        )
+        
+        # Wait for model to load
+        for _ in range(10):
+            time.sleep(1)
+            if _check_model_loaded(model_name):
+                print(f"[✅ Model loaded: {model_name}]")
+                return True
+        
+        print(f"[⚠️ Could not load: {model_name}]")
+        return False
+    except Exception as e:
+        print(f"[❌ Model error: {e}]")
+        return False
+
+def _optimize_ollama_load():
+    """Optimize Ollama model loading for speed."""
+    print("🧠 Optimizing model load...")
+    
+    # Check which models are essential
+    essential = ["llama3.2:3b", "moondream:latest"]
+    
+    for model in essential:
+        if not _check_model_loaded(model):
+            _start_model(model)
+    
+    # Stop unused heavy models
+    models = _get_ollama_models()
+    for model in models:
+        if model not in essential:
+            print(f"[🗑️ Stopping unused model: {model}]")
+            subprocess.run(["ollama", "stop", model], capture_output=True)
+    
+    print(f"[✅ Essential models ready: {essential}]")
+
+def _route_to_best_model(query, query_type="default"):
+    """Route query to the best model based on content."""
+    q = query.lower().strip()
+    
+    # Vision queries
+    if any(w in q for w in ["see", "screen", "visual", "what do you see", "show me"]):
+        return "moondream:latest"
+    
+    # Code/security queries
+    if any(w in q for w in ["audit", "security", "code", "review", "debug", "fix"]):
+        return "llama3.2:3b"
+    
+    # Simple queries
+    if any(w in q for w in ["hello", "hi", "hey", "how are you", "ok"]):
+        return "llama3.2:3b"
+    
+    # Default
+    return "llama3.2:3b"
+
+def _cache_query_response(query, response, cache_duration=300):
+    """Cache query response for faster subsequent calls."""
+    cache_key = f"{query}_{query_type}"
+    # Simple LRU cache
+    if hasattr(_cache_query_response, "cache"):
+        _cache_query_response.cache[cache_key] = {
+            "response": response,
+            "timestamp": time.time(),
+            "duration": cache_duration
+        }
+    else:
+        _cache_query_response.cache = {cache_key: {
+            "response": response,
+            "timestamp": time.time(),
+            "duration": cache_duration
+        }}
+    
+def _get_cached_response(query):
+    """Get cached response if available."""
+    cache_key = f"{query}_{query_type}"
+    if hasattr(_get_cached_response, "cache"):
+        if cache_key in _get_cached_response.cache:
+            item = _get_cached_response.cache[cache_key]
+            if time.time() - item["timestamp"] < item["duration"]:
+                return item["response"]
+    return None
+
+def _cleanup_model_cache():
+    """Clean up model cache periodically."""
+    if hasattr(_get_cached_response, "cache"):
+        current_time = time.time()
+        to_remove = []
+        for key, item in _get_cached_response.cache.items():
+            if current_time - item["timestamp"] > item["duration"]:
+                to_remove.append(key)
+        for key in to_remove:
+            del _get_cached_response.cache[key]
+
+
