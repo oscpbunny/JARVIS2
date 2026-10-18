@@ -41,6 +41,51 @@ CHUNK_DURATION = 0.08
 CHUNK_SAMPLES = int(RATE * CHUNK_DURATION)
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 _ACTION_REGEX = re.compile(r"\[ACTION:\s*([^\]]+)\]", re.IGNORECASE)
+_HALLUCINATION_PATTERNS = re.compile(
+    r"\b(it seems like|it appears|the user requested|visual_click)\b",
+    re.IGNORECASE,
+)
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+
+
+def check_understanding(user_text: str, ai_reply: str) -> bool:
+    """
+    Determine if jarvis actually understood the user's question.
+    Returns True if response is helpful, False if clarification needed.
+    """
+    import re
+    
+    user_lower = user_text.lower().strip()
+    reply_lower = ai_reply.lower().strip()
+    
+    # Must respond with at least 4 meaningful words
+    words = re.findall(r"\b\w+\b", reply_lower)
+    if len(words) < 4:
+        return False
+    
+    # Flag obvious hallucinated or generic phrases
+    if _HALLUCINATION_PATTERNS.search(reply_lower):
+        return False
+    
+    # Check length and content relevance
+    if len(reply_lower) < 30:
+        return False
+    
+    return True
+
+
+def make_clarification(user_text: str) -> str:
+    """
+    Generate a clarification question when jarvis didn't understand.
+    """
+    u = user_text.strip()
+    if len(u) > 100:
+        u = u[:100] + "..."
+    
+    if any(w in u for w in ["pronounce", "how to", "how should"]):
+        return f"Could you clarify how you'd like me to proceed with: '{u[:80]}'?"
+    
+    return f"I didn't fully understand '{u[:80]}'. Could you rephrase or ask more specifically?"
 
 print("\n" + "="*65)
 print("  🦾 JARVIS – ALL 7 PILLARS ONLINE (ACCELERATED)")
@@ -367,8 +412,25 @@ async def main_loop():
                                             speak_sentence(sentence)
                                             
                             if buf.strip() and not audio_engine.interrupted:
-                                speak_sentence(buf.strip())
-                            messages.append({"role": "assistant", "content": full_reply})
+                                final_reply = buf.strip()
+                                
+                                # Check if jarvis actually understood
+                                if not check_understanding(user_text, final_reply):
+                                    print(
+                                        f"[🤔 UNDERSTANDING CHECK FAILED - user: '{user_text[:80]}' | "
+                                        f"reply: '{final_reply[:80]}' -> clarification]",
+                                        flush=True
+                                    )
+                                    final_reply = make_clarification(user_text)
+                                    speak_sentence(final_reply)
+                                    messages.append({"role": "assistant", "content": final_reply})
+                                    continue
+                                
+                                speak_sentence(final_reply)
+                            else:
+                                final_reply = "I didn't catch that. Could you repeat?"
+                            
+                            messages.append({"role": "assistant", "content": final_reply or "Error"})
                         except asyncio.TimeoutError:
                             print("[⚠️ OLLAMA TIMEOUT: Circuit breaker triggered]", flush=True)
                             speak_sentence("Local inference is under load. Proceeding with command.")
