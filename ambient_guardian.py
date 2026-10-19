@@ -22,6 +22,9 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 from jarvis_config import ROOT, HACKTIVATE_DIR, VAULT_DIR
+from jarvis_log import get_logger
+
+log = get_logger("ambient_guardian")
 
 HACKTIVATE = HACKTIVATE_DIR
 VAULT = VAULT_DIR
@@ -64,6 +67,7 @@ def _queue_alert(category: str, message: str):
     conn.commit()
     conn.close()
     print(f"[🛡️  GUARDIAN ALERT QUEUED] [{category}] {message}", flush=True)
+    log.info("[🛡️  GUARDIAN ALERT QUEUED] [%s] %s", category, message)
 
 
 def get_pending_alerts():
@@ -258,6 +262,7 @@ def _delivery_loop():
                     pass
             else:
                 print(f"[🛡️  GUARDIAN SPEAKS]: {message}", flush=True)
+                log.info("[🛡️  GUARDIAN SPEAKS]: %s", message)
             mark_alert_spoken(alert_id)
             time.sleep(2.0)  # gap between sequential alerts
 
@@ -339,6 +344,7 @@ def start_guardian(speak_fn=None):
     threading.Thread(target=_terminal_log_watcher, daemon=True, name="GuardianLogTail").start()
 
     print("[🛡️  AMBIENT GUARDIAN ONLINE] Watching build, git, system health.", flush=True)
+    log.info("[🛡️  AMBIENT GUARDIAN ONLINE] Watching build, git, system health.")
 
 
 def stop_guardian():

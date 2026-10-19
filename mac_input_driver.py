@@ -14,6 +14,7 @@ All public functions degrade gracefully: on any AX/Quartz failure they return
 """
 from __future__ import annotations
 
+import logging
 import math
 import os
 import random
@@ -27,6 +28,19 @@ try:
 except Exception:  # pragma: no cover
     Quartz = None  # type: ignore
     _QUARTZ = False
+
+
+def _log() -> logging.Logger:
+    """Module logger, resolved lazily so ``jarvis_log`` config stays optional.
+
+    Falls back to a plain stdlib logger (console only) when ``jarvis_log``
+    is unavailable — the driver must never fail to import.
+    """
+    try:
+        from jarvis_log import get_logger
+        return get_logger("mac_input_driver")
+    except Exception:  # pragma: no cover
+        return logging.getLogger("mac_input_driver")
 
 # --------------------------------------------------------------------------
 # Cursor primitives
@@ -1193,6 +1207,7 @@ def find_element_by_vision(description: str, ollama_url: str = "http://localhost
         b64_img, screen_w, screen_h = capture_screen_base64()
     except Exception as e:
         print(f"[Vision Grounding Error]: Screen capture failed: {e}")
+        _log().warning("[Vision Grounding Error]: Screen capture failed: %s", e)
         return None
 
     prompt = (
@@ -1226,10 +1241,13 @@ def find_element_by_vision(description: str, ollama_url: str = "http://localhost
                 return coords
             print(f"[Vision Grounding]: unparseable moondream response: "
                   f"{(response_text or '')[:120]!r}")
+            _log().warning("[Vision Grounding]: unparseable moondream response: %r",
+                           (response_text or "")[:120])
             return None
 
     except Exception as e:
         print(f"[Vision Grounding Error]: Ollama moondream query failed: {e}")
+        _log().warning("[Vision Grounding Error]: Ollama moondream query failed: %s", e)
 
     return None
 

@@ -10,6 +10,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 PYTHON = ROOT / "venv" / "bin" / "python3"
 
+from jarvis_log import get_logger
+
+_slog = get_logger("supervisor")
+
 # name -> {"proc": Popen, "log": file handle}   (handles are closed on restart)
 SERVICES: dict = {}
 # name -> [timestamps of recent exits]          (crash-loop detection)
@@ -20,6 +24,7 @@ BACKOFF_BASE = 2.0        # first retry delay; doubles per consecutive crash
 
 def log(msg):
     print(f"[supervisor] {time.strftime('%Y-%m-%d %H:%M:%S')} {msg}", flush=True)
+    _slog.info("%s", msg)
 
 def _spawn(name: str, args: list, cwd: Path, log_path: Path):
     """Start one service with its output appended to its own log file.

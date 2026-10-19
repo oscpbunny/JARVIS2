@@ -162,8 +162,13 @@ status)
   # ─── logs ───────────────────────────────────────────────────────────────────
 
 logs)
+  # Prefer the live brain log; fall back to the supervisor log.
+  # Per-module logs live in logs/ (see jarvis_log.py); brain/supervisor
+  # land at the repo root because nohup captures their raw stdout.
   if [ -f "$BRAIN_PIDFILE" ] && pid_alive "$(cat "$BRAIN_PIDFILE" 2>/dev/null)"; then
     tail -f "$DIR/brain.log"
+  elif [ -f "$DIR/logs/always_online_jarvis.log" ]; then
+    tail -f "$DIR/logs/always_online_jarvis.log"
   else
     tail -f "$DIR/supervisor.log"
   fi

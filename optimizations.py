@@ -17,6 +17,9 @@ from typing import Optional
 # One config for the whole system: ROOT was the missing name that made
 # cleanup_resources raise NameError; the limits are shared, not re-declared.
 from jarvis_config import ROOT, CLEANUP_INTERVAL, MAX_MESSAGE_HISTORY, MAX_WORKERS
+from jarvis_log import get_logger
+
+log = get_logger("optimizations")
 
 # ─── In-Memory State for Optimization ────────────────────────────────────────
 
@@ -89,3 +92,4 @@ def cleanup_resources():
                 pass
 
     print(f"[🧹 RESOURCE CLEANUP: {removed} temp files, ran after {elapsed}s]", flush=True)
+    log.info("[🧹 RESOURCE CLEANUP: %d temp files, ran after %ds]", removed, int(elapsed))

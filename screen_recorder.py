@@ -22,6 +22,10 @@ import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta
 
+from jarvis_log import get_logger
+
+log = get_logger("screen_recorder")
+
 # PyObjC Quartz and Vision frameworks — macOS only. Guard the import so the
 # module still loads on Linux/Windows (CI, headless testing); OCR functions
 # degrade gracefully via the try/except in ocr_screen().
@@ -329,6 +333,7 @@ def _daemon_loop():
     global _running
     init_db()
     print("[📸 SCREEN RECALL DAEMON ONLINE: Native ANE OCR]", flush=True)
+    log.info("[📸 SCREEN RECALL DAEMON ONLINE: Native ANE OCR]")
     while _running:
         try:
             ingest_frame()

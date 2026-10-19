@@ -8,6 +8,9 @@ from datetime import datetime
 from pathlib import Path
 
 from jarvis_config import VAULT_DIR, ROOT
+from jarvis_log import get_logger
+
+_slog = get_logger("obsidian_sync")
 
 VAULT_PATH = VAULT_DIR
 AGENT_DIR = ROOT
@@ -16,6 +19,7 @@ SYNC_LOG = AGENT_DIR / "obsidian_sync.log"
 def log(msg):
     line = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
     print(line, flush=True)
+    _slog.info("%s", msg)
     with open(SYNC_LOG, "a", encoding="utf-8") as f:
         f.write(line + "\n")
 

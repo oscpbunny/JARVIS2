@@ -21,6 +21,9 @@ from typing import Callable
 
 from jarvis_config import ROOT, VAULT_DIR, VAULT_MEMORY, HACKTIVATE_DIR
 from jarvis_config import LLM_API_BASE, LLM_MODEL
+from jarvis_log import get_logger
+
+log = get_logger("subagent_swarm")
 
 DB_PATH = ROOT / "agent_bus.sqlite3"
 API_BASE = LLM_API_BASE
@@ -257,4 +260,5 @@ if __name__ == "__main__":
         print(f"Dispatched task #{t_id}")
     else:
         print("[🐝 SUBAGENT SWARM ONLINE]")
+        log.info("[🐝 SUBAGENT SWARM ONLINE]")
         asyncio.run(swarm_worker_loop())

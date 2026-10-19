@@ -55,6 +55,9 @@ from kokoro import KPipeline
 from faster_whisper import WhisperModel
 
 from jarvis_config import ROOT, LLM_MODEL as MODEL, LLM_API_BASE as API_BASE
+from jarvis_log import get_logger
+
+log = get_logger("always_online_jarvis")
 
 sys.path.insert(0, str(ROOT / "backtalk"))
 
@@ -129,7 +132,7 @@ def make_ollama_request(messages, timeout=20):
         )
         return resp
     except asyncio.TimeoutError:
-        print(f"[⏱️ OLLAMA TIMEOUT: {timeout}s exceeded]", flush=True)
+        log.warning("[⏱️ OLLAMA TIMEOUT: %ss exceeded]", timeout)
         return None
 
 # ─── Async TTS Engine ────────────────────────────────────────────────────────\
@@ -141,6 +144,7 @@ async def speak_sentence_async(sentence):
         return
     
     print(f"\n[JARVIS]: {clean}", flush=True)
+    log.info("[JARVIS]: %s", clean)
     signals.set_state("speaking")
     
     def _tts_sync(text):
@@ -154,11 +158,11 @@ async def speak_sentence_async(sentence):
         await loop.run_in_executor(_get_tts_executor(), _tts_sync, clean)
     except Exception as e1:
         try:
-            print(f"[TTS neural error ({e1}), falling back...]", flush=True)
+            log.warning("[TTS neural error (%s), falling back...]", e1)
             generator = tts_pipeline(clean, voice='bm_lewis', speed=1.15)
             audio_engine.play_stream(generator)
         except Exception as e2:
-            print(f"[TTS error: {e2}]", flush=True)
+            log.error("[TTS error: %s]", e2)
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(_get_tts_executor(),
                 lambda: subprocess.run(["say", "-v", "Daniel", "-r", "190", clean], timeout=8))
@@ -233,17 +237,19 @@ def make_clarification(user_text: str) -> str:
     
     return f"I didn't fully understand '{u[:80]}'. Could you rephrase or ask more specifically?"
 
-print("\n" + "="*65)
-print("  🦾 JARVIS – ALL 7 PILLARS ONLINE (ACCELERATED)")
-print("  P1: Self-Evolving Skill Engine  ✅")
-print("  P2: GUI Computer-Use Driver     ✅ (34.1 FPS In-Memory)")
-print("  P3: Subagent Worker Swarm       ✅ (Autonomous Workers)")
-print("  P4: Episodic Screen Recall      ✅ (Apple Neural Engine OCR)")
-print("  P5: Full-Duplex Barge-In        ✅ (Spec DuplexSpeech ~90ms)")
-print("  P6: Selected Code Inspector     ✅ (Safe Pasteboard Restore)")
-print("  P7: Ambient Guardian            ✅ (Throttled Health & Build)")
-print(f"  Mind: {MODEL} @ {API_BASE}")
-print("="*65 + "\n", flush=True)
+_BANNER = "\n" + "=" * 65 + """
+  🦾 JARVIS – ALL 7 PILLARS ONLINE (ACCELERATED)
+  P1: Self-Evolving Skill Engine  ✅
+  P2: GUI Computer-Use Driver     ✅ (34.1 FPS In-Memory)
+  P3: Subagent Worker Swarm       ✅ (Autonomous Workers)
+  P4: Episodic Screen Recall      ✅ (Apple Neural Engine OCR)
+  P5: Full-Duplex Barge-In        ✅ (Spec DuplexSpeech ~90ms)
+  P6: Selected Code Inspector     ✅ (Safe Pasteboard Restore)
+  P7: Ambient Guardian            ✅ (Throttled Health & Build)
+  Mind: %s @ %s
+""" % (MODEL, API_BASE) + "=" * 65 + "\n"
+print(_BANNER, flush=True)
+log.info(_BANNER)
 
 init_bus()
 start_screen_recorder()   # Pillar 4 – background screen OCR daemon
@@ -286,7 +292,7 @@ async def handle_vision_query(query_text: str):
     # Use P2 zero-overhead perceptual diffing if screen hasn't changed
     screen_changed_fn = P2_ACTIONS.get("screen_has_changed")
     if screen_changed_fn and not screen_changed_fn() and _cached_vision_description and (now - _last_vision_check < 60.0):
-        print("[👁️ SCREEN PERCEPTION: CACHE HIT (Screen unchanged)]", flush=True)
+        log.debug("[👁️ SCREEN PERCEPTION: CACHE HIT (Screen unchanged)]")
         speak_sentence(f"Screen is unchanged. {_cached_vision_description}")
         signals.set_state("idle")
         return
@@ -295,6 +301,7 @@ async def handle_vision_query(query_text: str):
     _cached_vision_description = description
     _last_vision_check = now
     print(f"[👁️ SCREEN PERCEPTION]: {description}", flush=True)
+    log.info("[👁️ SCREEN PERCEPTION]: %s", description)
     speak_sentence(description)
     signals.set_state("idle")
 
@@ -308,6 +315,7 @@ def speak_sentence(sentence):
     if not clean:
         return
     print(f"\n[JARVIS]: {clean}", flush=True)
+    log.info("[JARVIS]: %s", clean)
     signals.set_state("speaking")
     try:
         # Try Kokoro TTS via audio_engine first (simpler, fewer device conflicts)
@@ -315,11 +323,11 @@ def speak_sentence(sentence):
         audio_engine.play_stream(generator)
     except Exception as e1:
         try:
-            print(f"[TTS neural error ({e1}), falling back...]", flush=True)
+            log.warning("[TTS neural error (%s), falling back...]", e1)
             generator = tts_pipeline(clean, voice='bm_lewis', speed=1.15)
             audio_engine.play_stream(generator)
         except Exception as e2:
-            print(f"[TTS error: {e2}]", flush=True)
+            log.error("[TTS error: %s]", e2)
             import subprocess
             subprocess.run(["say", "-v", "Daniel", "-r", "190", clean], timeout=8)
     finally:
@@ -355,6 +363,7 @@ async def check_subagent_notifications():
             completed = get_completed_unnotified_tasks()
             for t_id, t_type, query, result in completed:
                 print(f"\n[🐝 SUBAGENT COMPLETED TASK {t_id}]: {result}", flush=True)
+                log.info("[🐝 SUBAGENT COMPLETED TASK %s] (%s): %s", t_id, t_type, result)
                 speak_sentence(f"Subagent completed {t_type}. {result}")
                 mark_task_notified(t_id)
             await asyncio.sleep(2.0)
@@ -382,6 +391,7 @@ async def main_loop():
     stream.start()
     
     print("[🎙️ Calibrating room noise level...]", flush=True)
+    log.info("[🎙️ Calibrating room noise level...]")
     ambient_levels = []
     for _ in range(15):
         c, _ = stream.read(CHUNK_SAMPLES)
@@ -393,12 +403,16 @@ async def main_loop():
     if duplex_engine is not None:
         duplex_engine.configure(trigger_thresh=trigger_thresh)
     print(f"[🎙️ Noise Floor: {avg_ambient:.1f} | Trigger: {trigger_thresh:.1f} | Silence: {silence_thresh:.1f}]", flush=True)
+    log.info("[🎙️ Noise Floor: %.1f | Trigger: %.1f | Silence: %.1f]",
+             avg_ambient, trigger_thresh, silence_thresh)
     print("\n[👂 Omniscient Listening: Highlight code and ask to explain, interrupt anytime...]\n", flush=True)
+    log.info("[👂 Omniscient Listening: Highlight code and ask to explain, interrupt anytime...]")
     
     while True:
         try:
             # Emergency Killswitch: touch /tmp/jarvis.kill to instantly stop the daemon
             if os.path.exists("/tmp/jarvis.kill"):
+                log.critical("\n[🛑 EMERGENCY KILLSWITCH ACTIVATED via /tmp/jarvis.kill!]")
                 print("\n[🛑 EMERGENCY KILLSWITCH ACTIVATED via /tmp/jarvis.kill!]", flush=True)
                 speak_sentence("Emergency killswitch activated. Jarvis going offline.")
                 try:
@@ -422,12 +436,14 @@ async def main_loop():
             # Acoustic Barge-in
             if audio_engine.is_speaking and rms > (trigger_thresh * 1.3):
                 print("\n[⚡ BARGE-IN INTERRUPT DETECTED! Halting playback...]", flush=True)
+                log.info("[⚡ BARGE-IN INTERRUPT DETECTED! Halting playback...]")
                 audio_engine.stop_speaking()
                 await asyncio.sleep(0.05)
                 continue
 
             if rms > trigger_thresh:
                 print("\n[🎤 Voice detected...]", flush=True)
+                log.debug("[🎤 Voice detected...]")
                 audio_data = record_utterance(stream, chunk, silence_thresh=silence_thresh)
                 
                 if len(audio_data) >= RATE * 0.4:
@@ -440,12 +456,14 @@ async def main_loop():
                     if len(clean_lower) >= 3 and clean_lower not in hallucinations:
                         update_keyboard_activity()   # Pillar 7 – reset idle gate
                         print(f"[YOU]: {user_text}", flush=True)
+                        log.info("[YOU]: %s", user_text)
                         
                         # 1. Selected Code / Highlighted Text Inspection
                         if any(w in clean_lower for w in ["highlighted code", "selected code", "explain this code", "explain this selection", "explain this", "what is this code"]):
                             selected_code = get_selected_text()
                             if selected_code:
                                 print(f"[🔍 INSPECTED SELECTION ({len(selected_code)} chars)]", flush=True)
+                                log.info("[🔍 INSPECTED SELECTION (%d chars)]", len(selected_code))
                                 prompt_content = f"The user highlighted this code in their editor:\n```\n{selected_code[:1500]}\n```\nUser question: {user_text}\nExplain concisely in 2 sentences."
                             else:
                                 prompt_content = user_text
@@ -454,6 +472,7 @@ async def main_loop():
                         elif any(w in clean_lower for w in ["audit the code", "audit my code", "audit code", "security audit"]):
                             t_id = dispatch_task("audit", user_text)
                             print(f"[🐝 DISPATCHED TO SUBAGENT SWARM: Task #{t_id}]", flush=True)
+                            log.info("[🐝 DISPATCHED audit TO SUBAGENT SWARM: Task #%s]", t_id)
                             speak_sentence("Dispatching code audit to background subagent. I'll alert you when complete.")
                             signals.set_state("idle")
                             continue
@@ -461,6 +480,7 @@ async def main_loop():
                         elif any(w in clean_lower for w in ["synthesize my vault", "synthesize vault", "synthesize notes"]):
                             t_id = dispatch_task("synthesis", user_text)
                             print(f"[🐝 DISPATCHED TO SUBAGENT SWARM: Task #{t_id}]", flush=True)
+                            log.info("[🐝 DISPATCHED synthesis TO SUBAGENT SWARM: Task #%s]", t_id)
                             speak_sentence("Subagent researching your second brain. Continuing to listen.")
                             signals.set_state("idle")
                             continue
@@ -468,6 +488,7 @@ async def main_loop():
                         elif any(w in clean_lower for w in ["scout web", "check url", "fetch url", "web research", "scout url"]):
                             t_id = dispatch_task("web", user_text)
                             print(f"[🐝 DISPATCHED TO SUBAGENT SWARM: Task #{t_id}]", flush=True)
+                            log.info("[🐝 DISPATCHED web TO SUBAGENT SWARM: Task #%s]", t_id)
                             speak_sentence("Web scout subagent dispatched. I will report back shortly.")
                             signals.set_state("idle")
                             continue
@@ -482,6 +503,7 @@ async def main_loop():
                             print(f"[📸 TEMPORAL RECALL QUERY]: {user_text}", flush=True)
                             recall_result = query_temporal_recall(user_text)
                             print(f"[📸 RECALL RESULT]: {recall_result}", flush=True)
+                            log.info("[📸 RECALL] query=%r result=%r", user_text, recall_result)
                             speak_sentence(recall_result)
                             signals.set_state("idle")
                             continue
@@ -490,6 +512,7 @@ async def main_loop():
                         action_result = parse_and_execute_intent(user_text)
                         if action_result:
                             print(f"[⚡ DIRECT ACTION]: {action_result}", flush=True)
+                            log.info("[⚡ DIRECT ACTION]: %s", action_result)
                             speak_sentence(action_result)
                             signals.set_state("idle")
                             continue
@@ -500,6 +523,7 @@ async def main_loop():
                             prompt_content = user_text
                             if vault_context:
                                 print(f"[📚 Retrieved context from Obsidian Vault]", flush=True)
+                                log.debug("[📚 Retrieved context from Obsidian Vault]")
                                 prompt_content = f"Relevant notes from user's vault:\n{vault_context}\n\nUser request: {user_text}"
                         
                         # Trim message history to prevent unbounded growth
@@ -508,6 +532,7 @@ async def main_loop():
                         # Route query to best model for optimization
                         route_model = _route_to_best_model(user_text, query_type="default")
                         print(f"[🧠 Routing query to: {route_model}]", flush=True)
+                        log.info("[🧠 Routing query to: %s]", route_model)
 
                         try:
                             # Circuit breaker: wait max 2.5s for Ollama to begin streaming
@@ -551,11 +576,13 @@ async def main_loop():
                                             p2_res = dispatch_p2(raw_action)
                                             if p2_res:
                                                 print(f"[🖱️ P2 GUI ACTION]: {p2_res}", flush=True)
+                                                log.info("[🖱️ P2 GUI ACTION]: %s", p2_res)
                                                 action_executed = True
                                             else:
                                                 exec_result = execute_model_action(raw_action)
                                                 if exec_result:
                                                     print(f"[⚡ MODEL ACTION TRIGGERED]: {exec_result}", flush=True)
+                                                    log.info("[⚡ MODEL ACTION TRIGGERED]: %s", exec_result)
                                                     action_executed = True
                                         buf = buf.replace(raw_action, "")
                                     
@@ -574,6 +601,10 @@ async def main_loop():
                                 
                                 # Check if jarvis actually understood
                                 if not check_understanding(user_text, final_reply):
+                                    log.warning(
+                                        "[🤔 UNDERSTANDING CHECK FAILED - user: %r | reply: %r -> clarification]",
+                                        user_text[:80], final_reply[:80],
+                                    )
                                     print(
                                         f"[🤔 UNDERSTANDING CHECK FAILED - user: '{user_text[:80]}' | "
                                         f"reply: '{final_reply[:80]}' -> clarification]",
@@ -591,6 +622,7 @@ async def main_loop():
                             
                             _message_history.append({"role": "assistant", "content": final_reply or "Error"})
                         except asyncio.TimeoutError:
+                            log.warning("[⚠️ OLLAMA TIMEOUT: Circuit breaker triggered]")
                             print("[⚠️ OLLAMA TIMEOUT: Circuit breaker triggered]", flush=True)
                             speak_sentence("Local inference is under load. Proceeding with command.")
                         except Exception as e:
@@ -600,6 +632,7 @@ async def main_loop():
                 # Periodic cleanup to manage memory
                 cleanup_resources()
                 print("\n[👂 Listening for your next command...]", flush=True)
+                log.debug("[👂 Listening for your next command...]")
                 
             time.sleep(0.01)
         except (KeyboardInterrupt, SystemExit):
@@ -608,6 +641,7 @@ async def main_loop():
             # Never swallow silently — an unlogged exception here hid a
             # broken chat path for hours. Say what died, keep listening.
             print(f"[⚠️ main loop error: {type(e).__name__}: {e}]", flush=True)
+            log.error("[⚠️ main loop error: %s: %s]", type(e).__name__, e, exc_info=True)
             time.sleep(0.1)
 
     stream.stop()
@@ -666,34 +700,34 @@ def _start_model(model_name):
         for _ in range(10):
             time.sleep(1)
             if _check_model_loaded(model_name):
-                print(f"[✅ Model loaded: {model_name}]")
+                log.info("[✅ Model loaded: %s]", model_name)
                 return True
-        
-        print(f"[⚠️ Could not load: {model_name}]")
+
+        log.warning("[⚠️ Could not load: %s]", model_name)
         return False
     except Exception as e:
-        print(f"[❌ Model error: {e}]")
+        log.error("[❌ Model error: %s]", e)
         return False
 
 def _optimize_ollama_load():
     """Optimize Ollama model loading for speed."""
-    print("🧠 Optimizing model load...")
-    
+    log.info("🧠 Optimizing model load...")
+
     # Check which models are essential
     essential = ["llama3.2:3b", "moondream:latest"]
-    
+
     for model in essential:
         if not _check_model_loaded(model):
             _start_model(model)
-    
+
     # Stop unused heavy models
     models = _get_ollama_models()
     for model in models:
         if model not in essential:
-            print(f"[🗑️ Stopping unused model: {model}]")
+            log.info("[🗑️ Stopping unused model: %s]", model)
             subprocess.run(["ollama", "stop", model], capture_output=True)
-    
-    print(f"[✅ Essential models ready: {essential}]")
+
+    log.info("[✅ Essential models ready: %s]", essential)
 
 def _route_to_best_model(query, query_type="default"):
     """Route query to the best model based on content."""
