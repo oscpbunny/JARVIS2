@@ -48,6 +48,17 @@ component_status() {
   if pid_alive "$p"; then echo "$name: RUNNING (PID $p)"; else echo "$name: not running"; fi
 }
 
+# face/hands are spawned by supervisor.py, so the jarvis-script pidfiles are
+# never written for them — fall back to the port they actually listen on.
+component_status_port() {
+  local pidfile="$1" name="$2" port="$3"
+  local p
+  p=$(cat "$pidfile" 2>/dev/null)
+  if pid_alive "$p"; then echo "$name: RUNNING (PID $p)"
+  elif port_alive "$port"; then echo "$name: RUNNING (supervised, port $port)"
+  else echo "$name: not running"; fi
+}
+
 # Ensure the project virtualenv exists and has the needed interpreters.
 ensure_venv() {
   if [ ! -x "$VENV/bin/python3" ]; then
@@ -104,7 +115,7 @@ start)
 
   echo "  Face:    http://127.0.0.1:8790"
   echo "  Hands:   http://127.0.0.1:8794/stage.html"
-  echo "  Voice:   http://localhost:8797 (see voice.log)"
+  echo "  Voice:   mic-based (say 'Jarvis'); no HTTP endpoint — see voice.log"
   echo "  Brain:   unified — 7 pillars inside backtalk"
   ;;
 
@@ -148,10 +159,14 @@ status)
   echo "--- Jarvis status ---"
   p=$(cat "$SUP_PIDFILE" 2>/dev/null)
   if pid_alive "$p"; then echo "supervisor   : RUNNING (PID $p)"; else echo "supervisor   : dead/start"; fi
-  component_status "$FACE_PIDFILE" "face"
-  component_status "$HANDS_PIDFILE"  "hands"
+  component_status_port "$FACE_PIDFILE" "face" 8790
+  component_status_port "$HANDS_PIDFILE"  "hands" 8794
   component_status "$VOICE_PIDFILE"  "voice"
-  component_status "$BRAIN_PIDFILE"  "brain"
+  # brain is no longer a separate process — it lives inside backtalk (voice)
+  p=$(cat "$BRAIN_PIDFILE" 2>/dev/null)
+  if pid_alive "$p"; then echo "brain: RUNNING (legacy PID $p)"
+  elif pid_alive "$(cat "$VOICE_PIDFILE" 2>/dev/null)"; then echo "brain: unified in backtalk (RUNNING)"
+  else echo "brain: not running"; fi
   echo "--- Ports ---"
   for p in 8790 8794; do
     if port_alive "$p"; then echo "port $p       : LISTENING"; else echo "port $p       : closed"; fi
