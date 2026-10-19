@@ -789,4 +789,24 @@ def _cleanup_model_cache():
 
 
 if __name__ == "__main__":
+    # ── RETIRED-BRAIN SAFETY INTERLOCK ───────────────────────────────────────
+    # This legacy brain is superseded by backtalk (live brain wired in
+    # backtalk/backtalk/pillars.py; ./jarvis start runs THAT). Launching this
+    # file directly is almost always an accident, and its _optimize_ollama_load
+    # -> _start_model path spawns `ollama serve` (detached, start_new_session)
+    # plus `ollama run <model>`, loading multi-GB models into RAM (2 llama-server
+    # instances ~= 39% RAM, 101% CPU) — this is what overheated the user's Mac
+    # on 2026-10-19. Refuse to run unless explicitly overridden.
+    import os as _os
+    if _os.environ.get("JARVIS_ALLOW_LEGACY") != "1":
+        sys.stderr.write(
+            "[jarvis] always_online_jarvis.py is RETIRED — the live brain is backtalk.\n"
+            "[jarvis] Starting it would auto-spawn Ollama models and overheat the Mac.\n"
+            "[jarvis] Use the unified stack instead:\n"
+            "[jarvis]     ./jarvis start\n"
+            "[jarvis] If you REALLY mean to run this legacy brain (it will load Ollama\n"
+            "[jarvis] models into RAM):\n"
+            "[jarvis]     JARVIS_ALLOW_LEGACY=1 venv/bin/python3 always_online_jarvis.py\n"
+        )
+        sys.exit(1)
     asyncio.run(main_loop())

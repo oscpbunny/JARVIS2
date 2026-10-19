@@ -200,3 +200,24 @@ class TestVisionGate:
 
     def test_empty_response_fails_closed(self, monkeypatch):
         assert self._gate_with(monkeypatch, response="") is False
+
+
+class TestLegacyBrainInterlock:
+    """always_online_jarvis.py is RETIRED; launching it auto-spawns Ollama
+    models (2 llama-server ~= 39pct RAM) and overheated the Mac on 2026-10-19.
+    The __main__ block must refuse to run without an explicit override."""
+
+    def test_main_block_has_interlock(self):
+        src = (ROOT / "always_online_jarvis.py").read_text()
+        assert 'JARVIS_ALLOW_LEGACY' in src, "missing retired-brain interlock"
+        assert "is RETIRED" in src
+
+    def test_refuses_to_run_without_override(self):
+        import subprocess as _sp
+        r = _sp.run(
+            [sys.executable, str(ROOT / "always_online_jarvis.py")],
+            capture_output=True, text=True, timeout=60,
+            env={"PATH": "/usr/bin:/bin"},  # no JARVIS_ALLOW_LEGACY
+        )
+        assert r.returncode == 1, r.stderr[-400:]
+        assert "RETIRED" in (r.stderr + r.stdout)
