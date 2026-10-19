@@ -1190,6 +1190,42 @@ def _parse_vision_coords(response_text: str,
     return None
 
 
+def _vision_confirms_exists(description: str, b64_img: str,
+                            ollama_url: str = "http://localhost:11434") -> bool:
+    """Second-opinion gate: ask moondream whether the target is actually visible.
+
+    A single point-prompt makes moondream hallucinate coordinates for targets
+    that are NOT on screen (live repro 2026-10-19: it located
+    'definitely-not-on-screen-xyz-123' and visual_click CLICKED at (979, 589)).
+    A yes/no existence check is far harder to hallucinate; we require an
+    explicit yes before any click. On query failure -> False (fail closed).
+    """
+    import json
+    import urllib.request
+
+    prompt = (f"Look at this screenshot. Is there a UI element matching "
+              f"'{description}' visible in it? Answer with exactly one word: "
+              f"yes or no.")
+    req_data = json.dumps({
+        "model": "moondream:latest",
+        "prompt": prompt,
+        "images": [b64_img],
+        "stream": False
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"{ollama_url}/api/generate",
+        data=req_data,
+        headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            text = json.loads(resp.read().decode()).get("response", "").strip().lower()
+        return text.startswith("y")
+    except Exception as e:
+        _log().warning("[Vision Gate] existence check failed (fail-closed): %s", e)
+        return False
+
+
 def find_element_by_vision(description: str, ollama_url: str = "http://localhost:11434") -> tuple[float, float] | None:
     """Ground a visual target description into screen coordinates (x, y).
 
@@ -1238,6 +1274,13 @@ def find_element_by_vision(description: str, ollama_url: str = "http://localhost
             # garbage, and out-of-range values without ever raising.
             coords = _parse_vision_coords(response_text or "", screen_w, screen_h)
             if coords:
+                # Safety gate: moondream hallucinates coords for absent
+                # targets; refuse to hand them to a clicker (fail closed).
+                if not _vision_confirms_exists(description, b64_img, ollama_url):
+                    print(f"[Vision Gate]: '{description}' not confirmed visible; refusing coords.")
+                    _log().warning("[Vision Gate]: '%s' coords %s not confirmed visible; refusing.",
+                                   description, coords)
+                    return None
                 return coords
             print(f"[Vision Grounding]: unparseable moondream response: "
                   f"{(response_text or '')[:120]!r}")

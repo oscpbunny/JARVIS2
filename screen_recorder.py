@@ -13,6 +13,7 @@ import os
 import sys
 import time
 import math
+import re
 import sqlite3
 import hashlib
 import threading

@@ -156,3 +156,47 @@ class TestPhase7Leftovers:
         main = src.split('if __name__ == "__main__":', 1)[1]
         assert 'open_app(' not in main, "module self-test must not launch apps"
         assert "skipped open_app probe" in main
+
+
+class TestVisionGate:
+    """Pin the hallucinated-coords safety gate (live bug 2026-10-19).
+
+    moondream returned confident coords for a nonexistent target and
+    visual_click CLICKED them. The gate must fail closed on anything but
+    an explicit yes.
+    """
+
+    @staticmethod
+    def _gate_with(monkeypatch, response=None, error=False):
+        import json as _json
+        import urllib.request as _ur
+        import mac_input_driver as d
+
+        class _Resp:
+            def read(self):
+                return _json.dumps({"response": response or ""}).encode()
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def fake_urlopen(req, timeout=None):
+            if error:
+                raise OSError("connection refused")
+            return _Resp()
+
+        monkeypatch.setattr(_ur, "urlopen", fake_urlopen)
+        return d._vision_confirms_exists("whatever", "fakeimg")
+
+    def test_explicit_yes_passes(self, monkeypatch):
+        assert self._gate_with(monkeypatch, response="yes") is True
+
+    def test_no_refused(self, monkeypatch):
+        assert self._gate_with(monkeypatch, response="no") is False
+
+    def test_garbage_refused(self, monkeypatch):
+        assert self._gate_with(monkeypatch, response="hmm, maybe? coordinates 0.5,0.5") is False
+
+    def test_query_failure_fails_closed(self, monkeypatch):
+        assert self._gate_with(monkeypatch, error=True) is False
+
+    def test_empty_response_fails_closed(self, monkeypatch):
+        assert self._gate_with(monkeypatch, response="") is False

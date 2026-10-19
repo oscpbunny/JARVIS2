@@ -45,7 +45,7 @@ class FullDuplexAudioEngine:
                             break
                         time.sleep(min(step, duration - elapsed))
                         elapsed += step
-            except Exception as e:
+            except (OSError, ValueError, RuntimeError):
                 pass
             finally:
                 self.is_speaking = False
