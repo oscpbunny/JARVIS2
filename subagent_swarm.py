@@ -23,6 +23,11 @@ from jarvis_config import ROOT, VAULT_DIR, VAULT_MEMORY, HACKTIVATE_DIR
 from jarvis_config import LLM_API_BASE, LLM_MODEL
 from jarvis_log import get_logger
 
+try:
+    from vault_index import iter_notes
+except ImportError:
+    iter_notes = None
+
 log = get_logger("subagent_swarm")
 
 DB_PATH = ROOT / "agent_bus.sqlite3"
@@ -177,17 +182,26 @@ async def run_vault_synthesis(query: str) -> str:
     snippets = []
     tokens = [t.lower() for t in query.split() if len(t) > 3]
 
-    for md_file in VAULT_DIR.rglob("*.md"):
-        if any(p in md_file.parts for p in (".obsidian", "templates", "+Utility")):
-            continue
-        try:
-            c = md_file.read_text(encoding="utf-8", errors="ignore")
-            if any(t in c.lower() or t in md_file.stem.lower() for t in tokens):
-                snippets.append(f"Note: {md_file.name}\n{c[:400]}")
+    if iter_notes is not None:
+        # Use cached vault index (mtime/size based, avoids re-reading files)
+        for md_file, content, content_lower, stem_lower in iter_notes():
+            if any(t in content_lower or t in stem_lower for t in tokens):
+                snippets.append(f"Note: {md_file.name}\n{content[:400]}")
                 if len(snippets) >= 3:
                     break
-        except Exception:
-            continue
+    else:
+        # Fallback: direct rglob (no cache)
+        for md_file in VAULT_DIR.rglob("*.md"):
+            if any(p in md_file.parts for p in (".obsidian", "templates", "+Utility")):
+                continue
+            try:
+                c = md_file.read_text(encoding="utf-8", errors="ignore")
+                if any(t in c.lower() or t in md_file.stem.lower() for t in tokens):
+                    snippets.append(f"Note: {md_file.name}\n{c[:400]}")
+                    if len(snippets) >= 3:
+                        break
+            except Exception:
+                continue
 
     vault_context = "\n\n".join(snippets) if snippets else "No direct note match found."
     prompt = (
