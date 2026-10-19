@@ -1,0 +1,182 @@
+#!/bin/bash
+# Jarvis Master CLI Controller
+# Starts and supervises the full 7-pillar Jarvis stack:
+#   face (ai-visualizer :8790) · hands (barehands :8794)
+#   voice (backtalk)    · 7-pillar brain (always_online_jarvis.py)
+#
+# Usage:
+#   ./jarvis start      - bring the whole stack up
+#   ./jarvis stop       - bring the whole stack down
+#   ./jarvis status     - report the health of every component
+#   ./jarvis logs       - tail the brain log
+#   ./jarvis talk       - start a voice-only session in this terminal
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
+PIDFILE="$DIR/.jarvis.pid"
+VENV="$DIR/venv"
+LOG_DIR="$DIR"
+
+# Runtime PID files
+SUP_PIDFILE="$DIR/.jarvis.supervisor.pid"
+FACE_PIDFILE="$DIR/.jarvis.face.pid"
+HANDS_PIDFILE="$DIR/.jarvis.hands.pid"
+VOICE_PIDFILE="$DIR/.jarvis.voice.pid"
+BRAIN_PIDFILE="$DIR/.jarvis.brain.pid"
+
+log() {
+  echo "[jarvis] $(date '+%Y-%m-%d %H:%M:%S') $1"
+}
+
+pid_alive() {
+  local p="$1"
+  # kill -0 sends no signal, just checks the pid exists — works on macOS
+  # (no /proc) and Linux alike. The old [ -d /proc/$p ] is Linux-only and
+  # made every component look dead on macOS.
+  [ -n "$p" ] && kill -0 "$p" 2>/dev/null
+}
+
+port_alive() {
+  command -v lsof >/dev/null 2>&1 && lsof -i ":${1}" -sTCP:LISTEN -t 2>/dev/null | grep -q . && return 0
+  command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -q "[:.]$1 " && return 0
+  return 1
+}
+
+component_status() {
+  local pidfile="$1" name="$2"
+  local p
+  p=$(cat "$pidfile" 2>/dev/null)
+  if pid_alive "$p"; then echo "$name: RUNNING (PID $p)"; else echo "$name: not running"; fi
+}
+
+# Ensure the project virtualenv exists and has the needed interpreters.
+ensure_venv() {
+  if [ ! -x "$VENV/bin/python3" ]; then
+    log "Creating project virtualenv..."
+    python3 -m venv "$VENV" 2>/dev/null || true
+    "$VENV/bin/python3" -m pip install --upgrade pip -q 2>/dev/null || true
+  fi
+}
+
+# ─── start ────────────────────────────────────────────────────────────────────
+case "$1" in
+
+start)
+  ensure_venv
+
+  # 1. Supervisor: face + hands (auto-restarts them if they die)
+  if [ -f "$SUP_PIDFILE" ] && pid_alive "$(cat "$SUP_PIDFILE" 2>/dev/null)"; then
+    echo "Jarvis supervisor already running (PID $(cat "$SUP_PIDFILE"))."
+  else
+    log "Starting face + hands supervisor..."
+    nohup "$VENV/bin/python3" "$DIR/supervisor.py" > "$DIR/supervisor.log" 2>&1 &
+    echo $! > "$SUP_PIDFILE"
+    echo "Jarvis supervisor started (PID $(cat "$SUP_PIDFILE"))."
+  fi
+
+  # 2. Voice: backtalk mouth
+  if [ -d "$DIR/backtalk" ] && [ ! -f "$VOICE_PIDFILE" ] || { [ -f "$VOICE_PIDFILE" ] && ! pid_alive "$(cat "$VOICE_PIDFILE" 2>/dev/null)"; }; then
+    : # placeholder is fine; real check below
+  fi
+  if [ -f "$VOICE_PIDFILE" ] && pid_alive "$(cat "$VOICE_PIDFILE" 2>/dev/null)"; then
+    echo "Jarvis voice already running (PID $(cat "$VOICE_PIDFILE"))." >&2
+  elif [ -d "$DIR/backtalk" ]; then
+    log "Starting voice (backtalk)..."
+    cd "$DIR/backtalk" || { echo "Jarvis voice: cannot cd into backtalk" >&2; return 1; }
+    nohup "$VENV/bin/python3" -m backtalk.main > "$DIR/voice.log" 2>&1 &
+    echo $! > "$VOICE_PIDFILE"
+    echo "Jarvis voice started (PID $(cat "$VOICE_PIDFILE"))."
+  else
+    echo "  (no backtalk dir — voice skipped)" >&2
+  fi
+
+  # 3. Brain: THE 7 PILLARS NOW LIVE INSIDE BACKTALK (this voice process).
+  #    always_online_jarvis.py's separate listen→decide→speak loop is
+  #    retired so there is ONE brain, ONE memory, and no two processes
+  #    racing for the mic. Its pillar modules (jarvis_actions, screen_vision,
+  #    subagent_swarm, screen_recorder, obsidian_rag, code_inspector,
+  #    ambient_guardian) are imported directly by backtalk's pillars bridge.
+  #    We only clean up a legacy brain left running from an older start.
+  if [ -f "$BRAIN_PIDFILE" ] && pid_alive "$(cat "$BRAIN_PIDFILE" 2>/dev/null)"; then
+    log "Retiring legacy 7-pillar brain (now unified inside backtalk)..."
+    kill "$(cat "$BRAIN_PIDFILE" 2>/dev/null)" 2>/dev/null || true
+    rm -f "$BRAIN_PIDFILE"
+  fi
+
+  echo "  Face:    http://127.0.0.1:8790"
+  echo "  Hands:   http://127.0.0.1:8794/stage.html"
+  echo "  Voice:   http://localhost:8797 (see voice.log)"
+  echo "  Brain:   unified — 7 pillars inside backtalk"
+  ;;
+
+  # ─── stop ───────────────────────────────────────────────────────────────────
+
+stop)
+  if [ -f "$SUP_PIDFILE" ]; then
+    sup_pid=$(cat "$SUP_PIDFILE")
+    if pid_alive "$sup_pid"; then
+      log "Stopping supervisor (PID $sup_pid)..."
+      kill "$sup_pid" 2>/dev/null
+      sleep 1
+      kill -9 "$sup_pid" 2>/dev/null
+    fi
+    rm -f "$SUP_PIDFILE"
+  fi
+  # Kill ALL supervisors, not just the pidfile's: any earlier era whose
+  # pidfile was stale (before the portable pid_alive fix) left orphans
+  # that keep respawning children against occupied ports forever.
+  pkill -f "$DIR/supervisor.py" 2>/dev/null
+  sleep 1
+  # Supervisor auto-restarts children; also clean up any stragglers directly.
+  pkill -f "ai-visualizer/server.py" 2>/dev/null
+  pkill -f "barehands/server.py" 2>/dev/null
+  # The children are launched with a relative cmdline ("server.py"), so
+  # the patterns above can MISS them and the old servers keep the ports
+  # alive while supervisor's respawn crash-loops on Address-in-use.
+  # The port owner is the truth — kill whoever holds our two ports.
+  for _port in 8790 8794; do
+    lsof -nP -iTCP:$_port -sTCP:LISTEN -t 2>/dev/null | xargs kill 2>/dev/null
+  done
+  pkill -f "backtalk.main" 2>/dev/null
+  pkill -f "always_online_jarvis.py" 2>/dev/null
+  rm -f "$VOICE_PIDFILE" "$BRAIN_PIDFILE" "$FACE_PIDFILE" "$HANDS_PIDFILE"
+  echo "Jarvis stopped."
+  ;;
+
+  # ─── status ─────────────────────────────────────────────────────────────────
+
+status)
+  echo "--- Jarvis status ---"
+  p=$(cat "$SUP_PIDFILE" 2>/dev/null)
+  if pid_alive "$p"; then echo "supervisor   : RUNNING (PID $p)"; else echo "supervisor   : dead/start"; fi
+  component_status "$FACE_PIDFILE" "face"
+  component_status "$HANDS_PIDFILE"  "hands"
+  component_status "$VOICE_PIDFILE"  "voice"
+  component_status "$BRAIN_PIDFILE"  "brain"
+  echo "--- Ports ---"
+  for p in 8790 8794; do
+    if port_alive "$p"; then echo "port $p       : LISTENING"; else echo "port $p       : closed"; fi
+  done
+  echo "-------------------"
+  ;;
+
+  # ─── logs ───────────────────────────────────────────────────────────────────
+
+logs)
+  if [ -f "$BRAIN_PIDFILE" ] && pid_alive "$(cat "$BRAIN_PIDFILE" 2>/dev/null)"; then
+    tail -f "$DIR/brain.log"
+  else
+    tail -f "$DIR/supervisor.log"
+  fi
+  ;;
+
+  # ─── talk ───────────────────────────────────────────────────────────────────
+
+talk)
+  cd "$DIR/backtalk" && "$VENV/bin/python3" -m backtalk.main --open-mic
+  ;;
+
+  *)
+  echo "Usage: ./jarvis {start|stop|status|logs|talk}"
+  exit 1
+  ;;
+esac

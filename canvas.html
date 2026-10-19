@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jarvis Neural Canvas & Live Diagram Studio</title>
+    <style>
+        :root {
+            --bg: #090a0f;
+            --surface: #12151f;
+            --accent: #00f0ff;
+            --accent-glow: rgba(0, 240, 255, 0.4);
+            --neon-purple: #a855f7;
+            --text: #e2e8f0;
+            --border: #1e2638;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 24px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            color: var(--accent);
+            text-transform: uppercase;
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #22c55e;
+            box-shadow: 0 0 10px #22c55e;
+        }
+        .toolbar {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .btn {
+            background: #181d2c;
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            box-shadow: 0 0 10px var(--accent-glow);
+        }
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            background: radial-gradient(circle at 50% 50%, #111422 0%, var(--bg) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+        #svg-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        .hud-overlay {
+            position: absolute;
+            bottom: 20px;
+            left: 24px;
+            background: rgba(18, 21, 31, 0.85);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 16px;
+            font-size: 0.85rem;
+            color: #94a3b8;
+            pointer-events: none;
+        }
+        .hud-overlay span { color: var(--accent); font-weight: 600; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">
+            <div class="status-dot"></div>
+            <span>Jarvis Neural Canvas</span>
+        </div>
+        <div class="toolbar">
+            <button class="btn" onclick="clearCanvas()">Clear Board</button>
+            <button class="btn" onclick="triggerCyberArch()">Demo Architecture</button>
+        </div>
+    </header>
+    
+    <div id="canvas-container">
+        <canvas id="paintCanvas"></canvas>
+        <svg id="svg-layer"></svg>
+        <div class="hud-overlay" id="hudStatus">
+            Voice command: <span>"Jarvis draw an architecture diagram"</span> or sketch freely.
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('paintCanvas');
+        const ctx = canvas.getContext('2d');
+        const svgLayer = document.getElementById('svg-layer');
+        const hud = document.getElementById('hudStatus');
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight - 53;
+            svgLayer.setAttribute('width', window.innerWidth);
+            svgLayer.setAttribute('height', window.innerHeight - 53);
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        let painting = false;
+        canvas.addEventListener('mousedown', () => painting = true);
+        canvas.addEventListener('mouseup', () => { painting = false; ctx.beginPath(); });
+        canvas.addEventListener('mousemove', draw);
+
+        function draw(e) {
+            if (!painting) return;
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = '#00f0ff';
+            ctx.shadowColor = '#00f0ff';
+            ctx.shadowBlur = 8;
+            ctx.lineTo(e.clientX, e.clientY - 53);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(e.clientX, e.clientY - 53);
+        }
+
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            svgLayer.innerHTML = '';
+            hud.innerHTML = 'Canvas cleared. Ready for your next command.';
+        }
+
+        function renderSvg(svgString) {
+            svgLayer.innerHTML = svgString;
+            hud.innerHTML = '<span>⚡ Diagram generated live by Jarvis</span>';
+        }
+
+        function triggerCyberArch() {
+            const w = canvas.width, h = canvas.height;
+            const cx = w / 2, cy = h / 2;
+            renderSvg(`
+                <defs>
+                    <linearGradient id="cyber" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#00f0ff" />
+                        <stop offset="100%" stop-color="#a855f7" />
+                    </linearGradient>
+                </defs>
+                <rect x="${cx - 240}" y="${cy - 120}" width="480" height="240" rx="16" fill="rgba(18,21,31,0.9)" stroke="url(#cyber)" stroke-width="2"/>
+                <text x="${cx}" y="${cy - 70}" text-anchor="middle" fill="#00f0ff" font-family="-apple-system, sans-serif" font-weight="700" font-size="18">JARVIS CYBERNETIC COGNITIVE ARCHITECTURE</text>
+                
+                <rect x="${cx - 200}" y="${cy - 30}" width="110" height="90" rx="8" fill="#1e2638" stroke="#00f0ff" stroke-width="1.5"/>
+                <text x="${cx - 145}" y="${cy + 10}" text-anchor="middle" fill="#e2e8f0" font-size="12" font-weight="600">VOICE & VAD</text>
+                <text x="${cx - 145}" y="${cy + 30}" text-anchor="middle" fill="#94a3b8" font-size="10">Kokoro + Whisper</text>
+
+                <line x1="${cx - 90}" y1="${cy + 15}" x2="${cx - 50}" y2="${cy + 15}" stroke="#00f0ff" stroke-width="2" stroke-dasharray="4"/>
+
+                <rect x="${cx - 50}" y="${cy - 30}" width="100" height="90" rx="8" fill="#1e2638" stroke="#a855f7" stroke-width="1.5"/>
+                <text x="${cx}" y="${cy + 10}" text-anchor="middle" fill="#e2e8f0" font-size="12" font-weight="600">DUAL BRAIN</text>
+                <text x="${cx}" y="${cy + 30}" text-anchor="middle" fill="#94a3b8" font-size="10">LLaMA + Vision</text>
+
+                <line x1="${cx + 50}" y1="${cy + 15}" x2="${cx + 90}" y2="${cy + 15}" stroke="#00f0ff" stroke-width="2" stroke-dasharray="4"/>
+
+                <rect x="${cx + 90}" y="${cy - 30}" width="110" height="90" rx="8" fill="#1e2638" stroke="#00f0ff" stroke-width="1.5"/>
+                <text x="${cx + 145}" y="${cy + 10}" text-anchor="middle" fill="#e2e8f0" font-size="12" font-weight="600">AUTOMATION</text>
+                <text x="${cx + 145}" y="${cy + 30}" text-anchor="middle" fill="#94a3b8" font-size="10">Apps, Tabs, Media</text>
+            `);
+        }
+
+        // Live WebSocket hook for Jarvis agent
+        const ws = new WebSocket("ws://127.0.0.1:8795");
+        ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === "draw_svg") {
+                    renderSvg(data.svg);
+                } else if (data.type === "clear") {
+                    clearCanvas();
+                }
+            } catch(e) {}
+        };
+    </script>
+</body>
+</html>
