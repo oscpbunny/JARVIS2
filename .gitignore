@@ -1,3 +1,38 @@
+# ── macOS / editor junk ──────────────────────────────────────────────────
 .DS_Store
+Thumbs.db
+*.swp
+*~
+
+# ── Python ───────────────────────────────────────────────────────────────
 __pycache__/
-*.pyc
+*.py[cod]
+
+# ── Virtualenv (never commit — 600 MB of binaries) ───────────────────────
+venv/
+.venv/
+env/
+
+# ── Runtime state, logs and caches (regenerated while the agent runs) ────
+*.log
+*.pid
+*.bak
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.jsonl
+*.tmp
+*.temp
+
+# ── Voice / UI runtime files (written by the running stack) ──────────────
+.voice_state
+.voice_waveform
+.voice_reply_done
+.jarvis.*.pid
+.jarvis.pid
+.screen_frames/
+
+# ── Local secrets & machine-specific config ──────────────────────────────
+.env
+*.pem
+*.key

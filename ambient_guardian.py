@@ -21,9 +21,10 @@ from datetime import datetime
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-ROOT = Path(__file__).resolve().parent
-HACKTIVATE = Path("/Users/m3/Desktop/softwares/projects/hacktivate")
-VAULT = Path("/Users/m3/Vault")
+from jarvis_config import ROOT, HACKTIVATE_DIR, VAULT_DIR
+
+HACKTIVATE = HACKTIVATE_DIR
+VAULT = VAULT_DIR
 
 # SQLite alert bus – shared with subagent_swarm bus
 ALERT_DB = ROOT / "agent_bus.sqlite3"
@@ -32,7 +33,8 @@ ALERT_DB = ROOT / "agent_bus.sqlite3"
 _last_keyboard_ts: float = time.time()
 IDLE_GATE_SECS = 3.0        # only speak after this many seconds of no typing
 
-# Global speak callback (set by always_online_jarvis when importing)
+# Global speak callback (set by the brain at startup: backtalk pillars
+# passes mouth.say; the legacy always_online_jarvis passes speak_sentence)
 _speak_callback = None
 
 # ─── Alert Bus ───────────────────────────────────────────────────────────────
@@ -204,6 +206,7 @@ def _system_health_loop():
     COOLDOWN = 600.0  # 10 minutes between duplicate alerts
 
     while True:
+        now = time.time()
         cpu = psutil.cpu_percent(interval=5)
         mem = psutil.virtual_memory()
         ram = mem.percent
@@ -226,10 +229,6 @@ def _system_health_loop():
         # FIX: Only alert if RAM is truly low (less than 10% free), not just cached
         if ram_pressure > HIGH_RAM and (now - last_ram_alert > COOLDOWN):
             _queue_alert("system", f"RAM usage is at {ram:.0f}%. Consider closing heavy apps.")
-            last_ram_alert = now
-
-        time.sleep(10)
-            _queue_alert("system", f"RAM usage is at {ram:.0f}%. You may want to free some memory.")
             last_ram_alert = now
 
         time.sleep(10)

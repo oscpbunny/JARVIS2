@@ -7,15 +7,49 @@
 - P5: Full-Duplex Barge-In Audio (<80ms interruption)
 - P6: Selected Code Inspector (AXUIElement / clipboard tap)
 - P7: Proactive Ambient Guardian (FSEvents build watcher, system health, git alerts)
+
+NOTE (2026-10-19): RETIRED as the primary brain. The live stack runs ONE
+brain inside backtalk (backtalk/backtalk/pillars.py wires P1-P7, and
+./jarvis start refuses to run this file alongside it). Kept as a legacy
+fallback entry point — run manually ONLY when backtalk is not running:
+    venv/bin/python3 always_online_jarvis.py
 """
+# ── Self-check ────────────────────────────────────────────────────────────────
+def _check_deps() -> None:
+    """Refuse to run if the project virtualenv's audio/vision packages are missing."""
+    missing = []
+    try:
+        import numpy  # noqa: F401
+    except ImportError:
+        missing.append("numpy")
+    try:
+        import sounddevice  # noqa: F401
+    except ImportError:
+        missing.append("sounddevice")
+    if missing:
+        sys.stderr.write(
+            "[jarvis] Missing runtime dependency(s): {}.\n".format(", ".join(missing))
+        )
+        sys.stderr.write(
+            "[jarvis] These live in the project virtualenv. Run with:\n"
+            "[jarvis]   jarvis start   (recommended)\n"
+            "[jarvis]   venv/bin/python3 always_online_jarvis.py\n"
+        )
+        sys.exit(1)
+
+_check_deps()
 import os
 import sys
+import gc
 import time
 import re
 import asyncio
+import subprocess
+import concurrent.futures
 import numpy as np
 import sounddevice as sd
 from pathlib import Path
+from typing import Optional
 from openai import AsyncOpenAI
 from kokoro import KPipeline
 from faster_whisper import WhisperModel
@@ -32,7 +66,8 @@ from voice_bargein import FullDuplexAudioEngine
 from code_inspector import get_selected_text
 from screen_recorder import start_daemon as start_screen_recorder, query_temporal_recall
 from ambient_guardian import start_guardian, update_keyboard_activity
-from pillar_bridge import dispatch_p2, p2_status, make_duplex_speech
+from pillar_bridge import dispatch_p2, p2_status, make_duplex_speech, P2_ACTIONS
+from optimizations import trim_message_history, cleanup_resources, get_thread_pool, release_thread_pool
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MEMORY & PERFORMANCE OPTIMIZATION STATE
@@ -46,6 +81,39 @@ MAX_WORKERS = 3
 
 # Temp file cleanup interval (seconds)
 CLEANUP_INTERVAL = 300
+
+# Memory-cleanup tracking (shared with optimizations module)
+_last_cleanup_time: float = 0.0
+_cleanup_done: bool = False
+
+# Thread pool singleton for async TTS / blocking IO
+_tts_executor: Optional[concurrent.futures.ThreadPoolExecutor] = None
+
+def _get_tts_executor():
+    global _tts_executor
+    if _tts_executor is None:
+        _tts_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="jarvis-tts"
+        )
+    return _tts_executor
+
+# Persistent self-learning memory log
+MEMORY_LOG = ROOT / "jarvis_memory.jsonl"
+
+def _log_interaction(user_text: str, jarvis_reply: str, actions: list | None = None):
+    """Append an interaction to the self-learning memory log."""
+    try:
+        import json as _json
+        entry = {
+            "ts": time.time(),
+            "user": user_text,
+            "jarvis": jarvis_reply,
+            "actions": actions or [],
+        }
+        with open(MEMORY_LOG, "a", encoding="utf-8") as f:
+            f.write(_json.dumps(entry) + "\n")
+    except Exception:
+        pass
 
 # ─── Memory-optimized Ollama API call ─────────────────────────────────────────
 def make_ollama_request(messages, timeout=20):
@@ -72,9 +140,7 @@ def make_ollama_request(messages, timeout=20):
         print(f"[⏱️ OLLAMA TIMEOUT: {timeout}s exceeded]", flush=True)
         return None
 
-# ─── Async TTS Engine ────────────────────────────────────────────────────────
-import concurrent.futures
-_tts_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="jarvis-tts")
+# ─── Async TTS Engine ────────────────────────────────────────────────────────\
 
 async def speak_sentence_async(sentence):
     """Async version of speak_sentence that doesn't block the main loop."""
@@ -92,7 +158,8 @@ async def speak_sentence_async(sentence):
         return True
     
     try:
-        await loop.run_in_executor(_tts_executor, _tts_sync, clean)
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(_get_tts_executor(), _tts_sync, clean)
     except Exception as e1:
         try:
             print(f"[TTS neural error ({e1}), falling back...]", flush=True)
@@ -100,33 +167,11 @@ async def speak_sentence_async(sentence):
             audio_engine.play_stream(generator)
         except Exception as e2:
             print(f"[TTS error: {e2}]", flush=True)
-            await loop.run_in_executor(_tts_executor, 
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(_get_tts_executor(),
                 lambda: subprocess.run(["say", "-v", "Daniel", "-r", "190", clean], timeout=8))
     finally:
         signals.set_state("idle")
-
-# ─── Memory Cleanup ────────────────────────────────────────────────────────────
-def cleanup_resources():
-    """Periodic resource cleanup to manage memory."""
-    global _last_cleanup_time, _cleanup_done
-    
-    now = time.time()
-    if now - _last_cleanup_time < CLEANUP_INTERVAL:
-        return
-    
-    _last_cleanup_time = now
-    
-    gc.collect()
-    
-    for pattern in ['*.tmp', '*.temp', '*.swp']:
-        for f in ROOT.glob(pattern):
-            try:
-                if f.is_file():
-                    f.unlink()
-            except:
-                pass
-    
-    print(f"[🧹 RESOURCE CLEANUP: {int(now - _last_cleanup_time)}s]", flush=True)
 
 # ─── Subagent Worker Rate Limiter ─────────────────────────────────────────────
 _worker_tasks = set()
@@ -157,7 +202,6 @@ _HALLUCINATION_PATTERNS = re.compile(
     r"\b(it seems like|it appears|the user requested|visual_click)\b",
     re.IGNORECASE,
 )
-_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 
 
 def check_understanding(user_text: str, ai_reply: str) -> bool:
@@ -332,7 +376,8 @@ async def main_loop():
     _optimize_ollama_load()
 
     # Trim message history to prevent unbounded growth
-    trim_message_history()
+    global _message_history
+    _message_history = trim_message_history(_message_history)
 
     # Pillar 7 – start Ambient Guardian with Jarvis TTS callback
     start_guardian(speak_fn=speak_sentence)
@@ -468,7 +513,7 @@ async def main_loop():
                                 prompt_content = f"Relevant notes from user's vault:\n{vault_context}\n\nUser request: {user_text}"
                         
                         # Trim message history to prevent unbounded growth
-                        trim_message_history()
+                        _message_history = trim_message_history(_message_history)
                         
                         # Route query to best model for optimization
                         route_model = _route_to_best_model(user_text, query_type="default")
@@ -550,6 +595,7 @@ async def main_loop():
                                     continue
                                 
                                 speak_sentence(final_reply)
+                                _log_interaction(user_text, final_reply)
                             else:
                                 final_reply = "I didn't catch that. Could you repeat?"
                             
@@ -569,13 +615,14 @@ async def main_loop():
         except (KeyboardInterrupt, SystemExit):
             break
         except Exception as e:
+            # Never swallow silently — an unlogged exception here hid a
+            # broken chat path for hours. Say what died, keep listening.
+            print(f"[⚠️ main loop error: {type(e).__name__}: {e}]", flush=True)
             time.sleep(0.1)
 
     stream.stop()
     stream.close()
 
-if __name__ == "__main__":
-    asyncio.run(main_loop())
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MODEL MANAGEMENT & ROUTER (Performance Optimizations)
@@ -677,7 +724,7 @@ def _route_to_best_model(query, query_type="default"):
     # Default
     return "llama3.2:3b"
 
-def _cache_query_response(query, response, cache_duration=300):
+def _cache_query_response(query, response, query_type="default", cache_duration=300):
     """Cache query response for faster subsequent calls."""
     cache_key = f"{query}_{query_type}"
     # Simple LRU cache
@@ -694,7 +741,7 @@ def _cache_query_response(query, response, cache_duration=300):
             "duration": cache_duration
         }}
     
-def _get_cached_response(query):
+def _get_cached_response(query, query_type="default"):
     """Get cached response if available."""
     cache_key = f"{query}_{query_type}"
     if hasattr(_get_cached_response, "cache"):
@@ -716,3 +763,6 @@ def _cleanup_model_cache():
             del _get_cached_response.cache[key]
 
 
+
+if __name__ == "__main__":
+    asyncio.run(main_loop())
