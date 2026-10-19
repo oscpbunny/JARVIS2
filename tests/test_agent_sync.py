@@ -154,7 +154,11 @@ class TestCmdMsg5W:
         monkeypatch.setattr(sys, "argv", ["x", "--what", "two word value"])
         assert agent_sync._flagval("--what") == "two word value"
 
-    def test_ask_trigger_defaults_to_ask_kind(self, monkeypatch, capsys):
+    def test_ask_trigger_defaults_to_ask_kind(self, monkeypatch, capsys, tmp_path):
+        # COORD MUST be patched to tmp_path: main() -> cmd_msg() appends to
+        # agent_sync.COORD, and without this the test writes real lines into
+        # AGENTS_COORDINATION.md (pollution bug found 2026-10-19).
+        monkeypatch.setattr(agent_sync, "COORD", tmp_path / "c.md")
         fake = {"ok": True, "files": [], "unclaimed_edits": [], "recent_claims": [],
                 "health_warnings": [], "health_info": {}, "vault_cache": {},
                 "import_preamble": ""}
@@ -164,3 +168,5 @@ class TestCmdMsg5W:
         assert agent_sync.main() == 0
         out = capsys.readouterr().out
         assert out.startswith("logged:") and "ASK by" in out and "the question" in out
+        # the line landed in the tmp coord file, not the real one
+        assert "the question" in (tmp_path / "c.md").read_text(encoding="utf-8")
