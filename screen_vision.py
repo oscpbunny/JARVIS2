@@ -6,6 +6,13 @@ supplemented by local visual perception.
 import subprocess
 from pathlib import Path
 
+try:
+    from jarvis_log import get_logger
+    log = get_logger("screen_vision")
+except Exception:  # standalone use without the log module
+    import logging as _logging
+    log = _logging.getLogger("screen_vision")
+
 def get_active_window_info() -> dict:
     script = '''
     tell application "System Events"
@@ -52,4 +59,6 @@ def analyze_screen(prompt: str = "") -> str:
     return f"You currently have {app} in the foreground."
 
 if __name__ == "__main__":
-    print(analyze_screen())
+    out = analyze_screen()
+    print(out)
+    log.info("%s", out)

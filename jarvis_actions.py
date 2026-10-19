@@ -39,8 +39,47 @@ APP_PATHS = {
     "spotify": "/Applications/Spotify.app"
 }
 
-def run_applescript(script: str):
-    subprocess.run(["osascript", "-e", script], capture_output=True)
+def _osascript_quote(s: str) -> str:
+    """Quote arbitrary text as an AppleScript string operand (ported from mac_input_driver).
+
+    Single source of the escaping logic lives in mac_input_driver._osascript_quote;
+    this local copy keeps jarvis_actions importable when Quartz/PyObjC is absent
+    (CI Linux) while staying byte-identical so behaviour matches. Tries the real
+    one first, falls back to the copy.
+    """
+    try:
+        from mac_input_driver import _osascript_quote as _real_quote  # type: ignore
+        return _real_quote(s)
+    except Exception:
+        escaped = str(s).replace("\\", "\\\\").replace('"', '\\"')
+        return f'quoted form of "{escaped}"'
+
+
+def _keystroke_literal(s: str, limit: int = 500) -> str:
+    """Escape user text for AppleScript `keystroke \"...\"` literal.
+
+    `quoted form of` is WRONG here (it shell-quotes for `do shell script`, not
+    for keystroke). Escape backslash first, then quotes, then flatten newlines
+    (a raw newline would break out of the AppleScript string and inject verbs).
+    """
+    s = str(s)[:limit]
+    return (
+        s.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\r\n", " ")
+        .replace("\n", " ")
+        .replace("\r", " ")
+    )
+
+
+def run_applescript(script: str, timeout: int = 10):
+    # timeout keeps a hung osascript from wedging the voice loop; caller gets
+    # CompletedProcess with returncode != 0 instead of blocking forever.
+    try:
+        return subprocess.run(["osascript", "-e", script], capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired as e:
+        # Return a failed result instead of raising into the voice loop.
+        return subprocess.CompletedProcess(args=["osascript"], returncode=124, stdout=b"", stderr=str(e).encode())
 
 def open_app(key: str) -> str:
     key_clean = key.lower().strip()
@@ -68,12 +107,18 @@ def close_app(key: str) -> str:
         run_applescript('tell application "DaVinci Resolve" to quit')
         return "Closed DaVinci Resolve."
     else:
-        run_applescript(f'tell application "{key}" to quit')
+        # Voice/model text must never interpolate raw into `tell application "X"`.
+        # Allowlist the dispatchable close targets; anything else is refused.
+        _CLOSE_ALLOWLIST = ("terminal", "google chrome", "davinci resolve",
+                            "safari", "finder", "notes", "spotify", "obsidian")
+        if key_clean not in _CLOSE_ALLOWLIST:
+            return f"Not closing {key} — not in the allowed app list."
+        run_applescript(f'tell application {_osascript_quote(key_clean)} to quit')
         return f"Closed {key}."
 
 def type_text(text: str) -> str:
     """Types text directly into the active foreground window, followed by return key."""
-    escaped = text.replace('"', '\\"')
+    escaped = _keystroke_literal(text)
     script = f'''
     tell application "System Events"
         keystroke "{escaped}"
@@ -81,13 +126,17 @@ def type_text(text: str) -> str:
     end tell
     '''
     run_applescript(script)
-    return f"Typed '{text}'."
+    return f"Typed '{text[:80]}'."
 
 def new_tab() -> str:
     run_applescript('tell application "System Events" to keystroke "t" using command down')
     return "Opened a new tab."
 
 def set_volume(level: int) -> str:
+    try:
+        level = int(level)
+    except (TypeError, ValueError):
+        return "Volume level must be a number 0-100."
     level = max(0, min(100, level))
     run_applescript(f"set volume output volume {level}")
     return f"Volume set to {level} percent."
@@ -224,6 +273,16 @@ def execute_model_action(action_tag: str) -> str | None:
     return None
 
 if __name__ == "__main__":
-    print(parse_and_execute_intent("type exit"))
-    print(parse_and_execute_intent("close terminal"))
-    print(open_app("antigravity ide"))
+    try:
+        from jarvis_log import get_logger as _get_logger
+        _cli_log = _get_logger("jarvis_actions")
+    except Exception:
+        import logging as _logging
+        _cli_log = _logging.getLogger("jarvis_actions")
+    for _probe in ("type exit", "close terminal"):
+        _out = parse_and_execute_intent(_probe)
+        print(_out)
+        _cli_log.info("%s -> %s", _probe, _out)
+    _out = "(skipped open_app probe: launching the IDE from a test run is a side-effect)"
+    print(_out)
+    _cli_log.info("%s", _out)

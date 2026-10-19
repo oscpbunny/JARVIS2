@@ -663,7 +663,7 @@ def _get_ollama_models():
             import json
             data = json.loads(result.stdout)
             return [m["name"] for m in data.get("models", [])]
-    except:
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError):
         pass
     return []
 

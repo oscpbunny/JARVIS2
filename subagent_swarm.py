@@ -31,7 +31,7 @@ MODEL = LLM_MODEL
 
 
 def init_bus():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=5.0)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute('''
         CREATE TABLE IF NOT EXISTS task_queue (
@@ -53,7 +53,7 @@ def init_bus():
 def dispatch_task(task_type: str, query: str) -> int:
     """Dispatches a task to the background swarm."""
     init_bus()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=5.0)
     cur = conn.cursor()
     now = time.time()
     cur.execute(
@@ -69,7 +69,7 @@ def dispatch_task(task_type: str, query: str) -> int:
 def get_completed_unnotified_tasks():
     """Returns completed tasks that haven't been voiced to the user yet."""
     init_bus()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=5.0)
     cur = conn.cursor()
     cur.execute(
         "SELECT id, task_type, query, result FROM task_queue WHERE status = 'completed' AND notified = 0 ORDER BY completed_at ASC"
@@ -80,7 +80,7 @@ def get_completed_unnotified_tasks():
 
 
 def mark_task_notified(task_id: int):
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=5.0)
     conn.execute("UPDATE task_queue SET notified = 1 WHERE id = ?", (task_id,))
     conn.commit()
     conn.close()
@@ -213,7 +213,7 @@ async def swarm_worker_loop():
     init_bus()
     while True:
         try:
-            conn = sqlite3.connect(DB_PATH)
+            conn = sqlite3.connect(DB_PATH, timeout=5.0)
             cur = conn.cursor()
             cur.execute("SELECT id, task_type, query FROM task_queue WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1")
             row = cur.fetchone()
@@ -221,7 +221,7 @@ async def swarm_worker_loop():
 
             if row:
                 t_id, t_type, query = row
-                conn = sqlite3.connect(DB_PATH)
+                conn = sqlite3.connect(DB_PATH, timeout=5.0)
                 conn.execute("UPDATE task_queue SET status = 'running' WHERE id = ?", (t_id,))
                 conn.commit()
                 conn.close()
@@ -240,7 +240,7 @@ async def swarm_worker_loop():
                 except Exception as ex:
                     result = f"Subagent error: {str(ex)[:60]}"
 
-                conn = sqlite3.connect(DB_PATH)
+                conn = sqlite3.connect(DB_PATH, timeout=5.0)
                 conn.execute(
                     "UPDATE task_queue SET status = 'completed', result = ?, completed_at = ? WHERE id = ?",
                     (result, time.time(), t_id)

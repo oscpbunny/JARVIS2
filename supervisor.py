@@ -18,6 +18,9 @@ _slog = get_logger("supervisor")
 SERVICES: dict = {}
 # name -> [timestamps of recent exits]          (crash-loop detection)
 RESTARTS: dict = {}
+# name -> epoch when it may be respawned (non-blocking backoff; the watch
+# loop must keep supervising the OTHER services while one waits out its delay)
+NEXT_RETRY: dict = {}
 MAX_RESTARTS = 5          # give up after this many exits...
 RESTART_WINDOW = 60.0     # ...within this many seconds
 BACKOFF_BASE = 2.0        # first retry delay; doubles per consecutive crash
@@ -107,11 +110,21 @@ if __name__ == "__main__":
                 continue
 
             delay = BACKOFF_BASE * (2 ** (len(recent) - 1))
+            NEXT_RETRY[name] = now + delay
             log(f"WARNING: Service {name} exited with code {poll}. "
-                f"Restarting in {delay:.0f}s (attempt {len(recent)}/{MAX_RESTARTS})...")
-            time.sleep(delay)
+                f"Retrying in {delay:.0f}s (attempt {len(recent)}/{MAX_RESTARTS})...")
+            del SERVICES[name]
+            continue
+        time.sleep(3)
+        # Non-blocking retries: respawn anything whose backoff has elapsed.
+        now = time.time()
+        for name, at in list(NEXT_RETRY.items()):
+            if now < at:
+                continue
+            del NEXT_RETRY[name]
+            if name in SERVICES:
+                continue  # already running (started elsewhere)
             if name == "visualizer":
                 start_visualizer()
             elif name == "barehands":
                 start_barehands()
-        time.sleep(3)

@@ -43,7 +43,7 @@ _speak_callback = None
 # ─── Alert Bus ───────────────────────────────────────────────────────────────
 
 def _init_alert_table():
-    conn = sqlite3.connect(ALERT_DB)
+    conn = sqlite3.connect(ALERT_DB, timeout=5.0)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS guardian_alerts (
             id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,7 +59,7 @@ def _init_alert_table():
 
 def _queue_alert(category: str, message: str):
     """Queue a proactive alert. The delivery loop speaks it when the user is idle."""
-    conn = sqlite3.connect(ALERT_DB)
+    conn = sqlite3.connect(ALERT_DB, timeout=5.0)
     conn.execute(
         "INSERT INTO guardian_alerts (timestamp, category, message) VALUES (?, ?, ?)",
         (time.time(), category, message)
@@ -71,7 +71,7 @@ def _queue_alert(category: str, message: str):
 
 
 def get_pending_alerts():
-    conn = sqlite3.connect(ALERT_DB)
+    conn = sqlite3.connect(ALERT_DB, timeout=5.0)
     rows = conn.execute(
         "SELECT id, category, message FROM guardian_alerts WHERE spoken = 0 ORDER BY timestamp ASC"
     ).fetchall()
@@ -80,7 +80,7 @@ def get_pending_alerts():
 
 
 def mark_alert_spoken(alert_id: int):
-    conn = sqlite3.connect(ALERT_DB)
+    conn = sqlite3.connect(ALERT_DB, timeout=5.0)
     conn.execute("UPDATE guardian_alerts SET spoken = 1 WHERE id = ?", (alert_id,))
     conn.commit()
     conn.close()

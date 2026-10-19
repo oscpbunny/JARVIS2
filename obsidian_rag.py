@@ -8,6 +8,19 @@ from pathlib import Path
 
 from jarvis_config import VAULT_DIR
 
+try:
+    from jarvis_log import get_logger
+    log = get_logger("obsidian_rag")
+except Exception:  # standalone use without the log module
+    import logging as _logging
+    log = _logging.getLogger("obsidian_rag")
+
+try:
+    from vault_index import iter_notes
+    _HAS_INDEX = True
+except Exception:
+    _HAS_INDEX = False
+
 STOPWORDS = {
     "open", "launch", "start", "close", "quit", "tab", "new", "window", "draw",
     "canvas", "chrome", "safari", "resolve", "davinci", "terminal", "editor",
@@ -35,27 +48,36 @@ def search_vault(query: str, max_results: int = 2) -> str:
 
     scored_notes = []
 
-    for md_file in VAULT_DIR.rglob("*.md"):
-        if any(part in md_file.parts for part in (".obsidian", "templates", "+Utility", ".config")):
-            continue
+    if _HAS_INDEX:
+        for md_file, content, content_lower, stem_lower in iter_notes():
+            title_hits = sum(stem_lower.count(token) for token in meaningful_tokens)
+            body_hits = sum(content_lower.count(token) for token in meaningful_tokens)
 
-        try:
-            content = md_file.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
-            continue
+            score = (title_hits * 10) + body_hits
 
-        content_lower = content.lower()
-        stem_lower = md_file.stem.lower()
-        
-        # Give massive weight if title matches the query concept
-        title_hits = sum(stem_lower.count(token) for token in meaningful_tokens)
-        body_hits = sum(content_lower.count(token) for token in meaningful_tokens)
-        
-        score = (title_hits * 10) + body_hits
+            if score >= 5:
+                # Store full Path + original-case content for snippet (no re-read needed)
+                scored_notes.append((score, md_file, content))
+    else:
+        for md_file in VAULT_DIR.rglob("*.md"):
+            if any(part in md_file.parts for part in (".obsidian", "templates", "+Utility", ".config")):
+                continue
 
-        # Minimum score threshold to prevent irrelevant injections
-        if score >= 5:
-            scored_notes.append((score, md_file.name, content))
+            try:
+                content = md_file.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                continue
+
+            content_lower = content.lower()
+            stem_lower = md_file.stem.lower()
+            
+            title_hits = sum(stem_lower.count(token) for token in meaningful_tokens)
+            body_hits = sum(content_lower.count(token) for token in meaningful_tokens)
+            
+            score = (title_hits * 10) + body_hits
+
+            if score >= 5:
+                scored_notes.append((score, md_file.name, content))
 
     scored_notes.sort(key=lambda x: x[0], reverse=True)
     top_notes = scored_notes[:max_results]
@@ -64,13 +86,17 @@ def search_vault(query: str, max_results: int = 2) -> str:
         return ""
 
     snippets = []
-    for score, filename, content in top_notes:
-        cleaned = clean_text(content)
+    for score, md_ref, full_content in top_notes:
+        # md_ref is a Path (index) or filename str (rglob fallback) — both work
+        filename = md_ref.name if isinstance(md_ref, Path) else md_ref
+        cleaned = clean_text(full_content)
         first_paragraph = cleaned[:300].replace("\n", " ")
         snippets.append(f"Note: {filename}\nSnippet: {first_paragraph}")
 
     return "\n\n".join(snippets)
 
 if __name__ == "__main__":
-    print("Testing 'new tab':", repr(search_vault("new tab")))
-    print("Testing 'neuroplasticity':", repr(search_vault("neuroplasticity")))
+    for probe in ("new tab", "neuroplasticity"):
+        out = search_vault(probe)
+        print(f"Testing {probe!r}:", repr(out))
+        log.info("Testing %r: %r", probe, out)

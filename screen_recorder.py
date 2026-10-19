@@ -123,7 +123,7 @@ def _decode_embedding(raw) -> list[float] | None:
 # ─── DB Bootstrap ─────────────────────────────────────────────────────────────
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=5.0)
     # WAL mode: readers (query_temporal_recall) no longer block the writer
     # (ingest_frame) and vice versa. Safe for a single-host daemon.
     try:
@@ -157,7 +157,7 @@ def prune_db(conn: sqlite3.Connection | None = None) -> dict:
     stats: dict = {"ok": True, "deleted_by_age": 0, "deleted_by_count": 0}
     own_conn = conn is None
     if own_conn:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=5.0)
     try:
         cutoff = time.time() - RETENTION_SECONDS
         cur = conn.execute(
@@ -191,7 +191,7 @@ def prune_db(conn: sqlite3.Connection | None = None) -> dict:
     # connection outside any transaction.
     try:
         if DB_PATH.exists() and DB_PATH.stat().st_size > MAX_DB_BYTES:
-            with sqlite3.connect(DB_PATH) as vc:
+            with sqlite3.connect(DB_PATH, timeout=5.0) as vc:
                 vc.execute("VACUUM")
             stats["vacuumed"] = True
     except (sqlite3.Error, OSError):
@@ -312,7 +312,7 @@ def ingest_frame():
     # ~92 KB as JSON text. Legacy JSON rows remain readable (see _decode_embedding).
     emb_blob = _pack_embedding(emb) if emb else None
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=5.0)
     try:
         conn.execute(
             "INSERT INTO screen_frames (timestamp, app_name, window_title, ocr_text, frame_hash, embedding) "
@@ -409,7 +409,7 @@ def query_temporal_recall(natural_query: str) -> str:
     ]
     query_emb = get_embedding(natural_query)
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=5.0)
     rows = conn.execute(
         "SELECT timestamp, app_name, window_title, ocr_text, embedding FROM screen_frames "
         "WHERE timestamp BETWEEN ? AND ? ORDER BY timestamp DESC LIMIT 60",

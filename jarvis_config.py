@@ -58,7 +58,7 @@ SCREEN_CAPTURE_INTERVAL = int(os.environ.get("JARVIS_SCREEN_INTERVAL", "15"))
 SCREEN_RETENTION_DAYS = int(os.environ.get("JARVIS_SCREEN_RETENTION_DAYS", "7"))
 # Hard caps that trigger pruning even for fresh frames: row count and DB bytes.
 SCREEN_MAX_FRAMES = int(os.environ.get("JARVIS_SCREEN_MAX_FRAMES", "20000"))
-SCREEN_MAX_DB_MB = int(os.environ.get("JARVIS_SCREEN_MAX_DB_MB", "512"))
+SCREEN_MAX_DB_MB = int(os.environ.get("JARVIS_SCREEN_MAX_DB_MB", "200"))
 
 # ── Structured logging ──────────────────────────────────────────────────────
 # JARVIS_LOG_LEVEL  verbosity for console + file (default INFO)
