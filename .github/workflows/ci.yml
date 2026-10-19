@@ -19,6 +19,9 @@ jobs:
       - name: Install test deps
         run: pip install -r requirements-dev.txt
 
+      - name: Pre-flight health probe
+        run: python3 jarvis_health.py
+
       - name: Run pytest (full suite incl. parallel-safe)
         run: python3 -m pytest tests/ -q
 
