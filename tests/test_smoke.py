@@ -12,6 +12,7 @@ gaps left when the brain moved into backtalk.
 from __future__ import annotations
 
 import inspect
+import platform
 import sys
 from pathlib import Path
 
@@ -151,6 +152,8 @@ def test_guardian_accepts_speak_callback():
 
 # ── entry points still compile ───────────────────────────────────────────────
 def test_driver_public_api_degrades_gracefully():
+    if platform.system() != "Darwin":
+        return  # needs Quartz/screen capture; skip on CI Linux
     import mac_input_driver as d
 
     assert d.visual_click("definitely-not-on-screen-xyz-123").get("ok") is False
@@ -169,6 +172,8 @@ def test_osascript_quote_neutralises_injection():
 
 
 def test_app_pid_accepts_int_like_only():
+    if platform.system() != "Darwin":
+        return  # osascript/Quartz path is macOS-only; skip on CI Linux
     import mac_input_driver as d
 
     try:

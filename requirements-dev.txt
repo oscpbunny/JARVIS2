@@ -1,0 +1,2 @@
+# JARVIS2 dev/test dependencies (kept separate so the runtime venv stays lean).
+pytest>=8.0
