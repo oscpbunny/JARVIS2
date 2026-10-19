@@ -1047,10 +1047,13 @@ def capture_screen_base64() -> tuple[str, int, int]:
 
 def capture_perf() -> dict:
     """Benchmark the Task-5 capture path (integration lane can log this)."""
-    t0 = time.time()
-    b64, w, h = capture_screen_base64()
-    ms = round((time.time() - t0) * 1000, 1)
-    return {"ok": True, "ms": ms, "bytes": len(b64), "w": w, "h": h}
+    try:
+        t0 = time.time()
+        b64, w, h = capture_screen_base64()
+        ms = round((time.time() - t0) * 1000, 1)
+        return {"ok": True, "ms": ms, "bytes": len(b64), "w": w, "h": h}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 def screen_bounds() -> tuple[float, float]:
@@ -1216,11 +1219,18 @@ def find_element_by_vision(description: str, ollama_url: str = "http://localhost
 
 def visual_click(description: str, clicks: int = 1) -> dict:
     """Attempts to visually locate an element via Moondream and clicks it with Bezier smoothing."""
-    coords = find_element_by_vision(description)
-    if not coords:
-        return {"ok": False, "error": f"Could not visually ground '{description}' with Moondream"}
-    x, y = coords
-    move_to(x, y, curved=True, duration=0.25)
-    click(x, y, clicks=clicks)
-    return {"ok": True, "target": description, "clicked_at": (x, y)}
+    try:
+        coords = find_element_by_vision(description)
+        if not coords:
+            return {"ok": False, "error": f"Could not visually ground '{description}' with Moondream"}
+        x, y = coords
+        r_move = move_to(x, y, curved=True, duration=0.25)
+        if not r_move.get("ok"):
+            return {"ok": False, "error": f"move failed: {r_move.get('error')}"}
+        r_click = click(x, y, clicks=clicks)
+        if not r_click.get("ok"):
+            return {"ok": False, "error": f"click failed: {r_click.get('error')}"}
+        return {"ok": True, "target": description, "clicked_at": (x, y)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 

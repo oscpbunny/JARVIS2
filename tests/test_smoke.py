@@ -150,6 +150,14 @@ def test_guardian_accepts_speak_callback():
 
 
 # ── entry points still compile ───────────────────────────────────────────────
+def test_driver_public_api_degrades_gracefully():
+    import mac_input_driver as d
+
+    assert d.visual_click("definitely-not-on-screen-xyz-123").get("ok") is False
+    assert isinstance(d.capture_perf(), dict) and "ok" in d.capture_perf()
+    assert d.click_menu("Finder", []) == {"ok": False, "error": "empty menu path"}
+
+
 def test_all_root_modules_compile():
     import py_compile
 
