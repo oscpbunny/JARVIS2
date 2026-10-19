@@ -86,6 +86,43 @@ def mark_alert_spoken(alert_id: int):
     conn.close()
 
 
+def prune_alerts(max_age_seconds: float = 86400, max_rows: int = 1000) -> dict:
+    """Prune the alert bus: delete old spoken alerts, cap total rows.
+
+    Args:
+        max_age_seconds: Delete alerts older than this (default 24h).
+        max_rows: If table exceeds this, delete oldest spoken alerts first.
+
+    Returns dict with pruning stats.
+    """
+    stats = {"ok": True, "deleted_by_age": 0, "deleted_by_count": 0}
+    conn = sqlite3.connect(ALERT_DB, timeout=5.0)
+    try:
+        cutoff = time.time() - max_age_seconds
+        cur = conn.execute(
+            "DELETE FROM guardian_alerts WHERE spoken = 1 AND timestamp < ?",
+            (cutoff,)
+        )
+        stats["deleted_by_age"] = cur.rowcount or 0
+
+        total = conn.execute("SELECT COUNT(*) FROM guardian_alerts").fetchone()[0]
+        if total > max_rows:
+            excess = total - max_rows
+            cur = conn.execute(
+                "DELETE FROM guardian_alerts WHERE spoken = 1 AND id IN ("
+                "SELECT id FROM guardian_alerts WHERE spoken = 1 ORDER BY timestamp ASC LIMIT ?)",
+                (excess,)
+            )
+            stats["deleted_by_count"] = cur.rowcount or 0
+        conn.commit()
+    except sqlite3.Error as e:
+        stats = {"ok": False, "error": str(e)}
+        conn.rollback()
+    finally:
+        conn.close()
+    return stats
+
+
 # ─── Keyboard Idle Gate ──────────────────────────────────────────────────────
 
 def update_keyboard_activity():
@@ -246,6 +283,7 @@ def _delivery_loop():
     Only delivers them when the user has been keyboard-idle for IDLE_GATE_SECS.
     """
     _init_alert_table()
+    prune_counter = 0
     while True:
         time.sleep(1.5)
         if not _is_user_idle():
@@ -265,6 +303,11 @@ def _delivery_loop():
                 log.info("[🛡️  GUARDIAN SPEAKS]: %s", message)
             mark_alert_spoken(alert_id)
             time.sleep(2.0)  # gap between sequential alerts
+        # Periodic prune (every ~100 iterations = ~2.5 min)
+        prune_counter += 1
+        if prune_counter >= 100:
+            prune_counter = 0
+            prune_alerts()
 
 
 # ─── Terminal Build Output Watcher (tail -f approach) ────────────────────────
