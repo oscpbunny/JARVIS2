@@ -54,7 +54,8 @@ from openai import AsyncOpenAI
 from kokoro import KPipeline
 from faster_whisper import WhisperModel
 
-ROOT = Path(__file__).resolve().parent
+from jarvis_config import ROOT, LLM_MODEL as MODEL, LLM_API_BASE as API_BASE
+
 sys.path.insert(0, str(ROOT / "backtalk"))
 
 from backtalk import signals
@@ -69,22 +70,13 @@ from ambient_guardian import start_guardian, update_keyboard_activity
 from pillar_bridge import dispatch_p2, p2_status, make_duplex_speech, P2_ACTIONS
 from optimizations import trim_message_history, cleanup_resources, get_thread_pool, release_thread_pool
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════
 # MEMORY & PERFORMANCE OPTIMIZATION STATE
-# ══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════
 
-# Message history limit (prevents unbounded list growth)
-MAX_MESSAGE_HISTORY = 8
-
-# Subagent worker concurrency limit
-MAX_WORKERS = 3
-
-# Temp file cleanup interval (seconds)
-CLEANUP_INTERVAL = 300
-
-# Memory-cleanup tracking (shared with optimizations module)
-_last_cleanup_time: float = 0.0
-_cleanup_done: bool = False
+# Note: MAX_MESSAGE_HISTORY, MAX_WORKERS, CLEANUP_INTERVAL live in jarvis_config
+# (single source of truth). optimizations.trim_message_history() and
+# optimizations.cleanup_resources() read them from there — do not redeclare.
 
 # Thread pool singleton for async TTS / blocking IO
 _tts_executor: Optional[concurrent.futures.ThreadPoolExecutor] = None
@@ -191,8 +183,6 @@ def get_active_workers():
     return len(_worker_tasks)
 
 
-MODEL = os.environ.get("LLM_MODEL", "llama3.2:3b")
-API_BASE = os.environ.get("LLM_API_BASE", "http://localhost:11434/v1")
 RATE = 16000
 CHUNK_DURATION = 0.08
 CHUNK_SAMPLES = int(RATE * CHUNK_DURATION)
