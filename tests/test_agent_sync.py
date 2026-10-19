@@ -120,3 +120,47 @@ class TestMain:
         monkeypatch.setattr(sys, "argv", ["agent_sync.py", "--claim", "vault_index.py", "test"])
         assert agent_sync.main() == 0
         assert "CLAIM vault_index.py test" in (tmp_path / "c.md").read_text(encoding="utf-8")
+
+
+class TestCmdMsg5W:
+    """Structured 5W handoffs carry who/what/when/how/why + an explicit ASK so
+    the other agent can judge risk and act without guessing."""
+
+    def test_msg_emits_all_five_w(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setattr(agent_sync, "COORD", tmp_path / "c.md")
+        rc = agent_sync.cmd_msg(
+            who="Kilo", what="fixed leak", when="now", how="finally-block",
+            why="avoid slot exhaustion", ask="review it?", kind="MSG")
+        assert rc == 0
+        text = (tmp_path / "c.md").read_text(encoding="utf-8")
+        assert "MSG by Kilo: fixed leak" in text
+        for tag in ("WHEN: now", "HOW: finally-block", "WHY: avoid slot exhaustion",
+                    "ASK: review it?"):
+            assert tag in text, text
+
+    def test_msg_omits_missing_fields(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(agent_sync, "COORD", tmp_path / "c.md")
+        agent_sync.cmd_msg(who="Cline", what="just this", kind="MSG")
+        text = (tmp_path / "c.md").read_text(encoding="utf-8")
+        assert "WHEN:" not in text and "ASK:" not in text
+
+    def test_flagval_skips_bare_trigger(self, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["agent_sync.py", "--ask", "--who", "Kilo"])
+        # bare --ask must not swallow --who as its value
+        assert agent_sync._flagval("--ask") == ""
+        assert agent_sync._flagval("--who") == "Kilo"
+
+    def test_flagval_returns_quoted_value(self, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["x", "--what", "two word value"])
+        assert agent_sync._flagval("--what") == "two word value"
+
+    def test_ask_trigger_defaults_to_ask_kind(self, monkeypatch, capsys):
+        fake = {"ok": True, "files": [], "unclaimed_edits": [], "recent_claims": [],
+                "health_warnings": [], "health_info": {}, "vault_cache": {},
+                "import_preamble": ""}
+        monkeypatch.setattr(agent_sync, "snapshot", lambda: fake)
+        monkeypatch.setattr(sys, "argv", ["agent_sync.py", "--ask", "--what", "q1",
+                                          "--q", "the question"])
+        assert agent_sync.main() == 0
+        out = capsys.readouterr().out
+        assert out.startswith("logged:") and "ASK by" in out and "the question" in out

@@ -24,7 +24,7 @@ def get_memory_usage():
         mem['rss'] = "N/A"  # Would need /proc or other method
         mem['vsz'] = "N/A"
         return mem
-    except:
+    except (OSError, subprocess.SubprocessError, ValueError):
         return {}
 
 def cleanup_temp_files():
@@ -35,7 +35,7 @@ def cleanup_temp_files():
             try:
                 if f.is_file():
                     os.utime(f, None)  # Reset timestamp
-            except:
+            except (OSError, PermissionError):
                 pass
 
 def force_gc():

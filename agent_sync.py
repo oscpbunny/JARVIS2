@@ -1,5 +1,22 @@
 #!/usr/bin/env python3
-"""One-command agent sync - keeps parallel agents collision-free."
+"""One-command agent sync - keeps parallel agents collision-free.
+
+Usage:
+  agent_sync.py                 # human table: tree + lanes + health
+  agent_sync.py --json          # machine-readable snapshot
+  agent_sync.py --claim "..."   # log a CLAIM before editing
+  agent_sync.py --done "..."    # log a DONE after verifying
+
+Structured 5W handoff (WHO/WHAT/WHEN/HOW/WHY + ASK) - preferred whenever the
+other agent must act, because bare CLAIM/DONE lines drop the reasoning and the
+receiver is forced to guess at risk:
+  agent_sync.py --msg  --what "did X" --when "now" --how "method + verify" \
+      --why "reason" --q "question for the other lane"
+  agent_sync.py --ask --who "Kilo" --what "status of Y" --why "risk if ignored" \
+      --q "when/how will you land it?"
+Flags: --who owner | --what action+files | --when timing/urgency |
+       --how method+verification | --why motivation | --q the question |
+       --kind MSG|ASK (default ASK if --ask present else MSG)
 """
 from __future__ import annotations
 import json
@@ -112,7 +129,61 @@ def cmd_claim(msg: str, kind: str = "CLAIM") -> int:
     except OSError as e:
         print(f"claim failed: {e}", file=sys.stderr)
         return 1
+
+def cmd_msg(who: str, what: str, when: str = "", how: str = "", why: str = "",
+            ask: str = "", kind: str = "MSG") -> int:
+    """Structured 5W coordination message.
+
+    Bare CLAIM/DONE lines lose the reasoning, so the other agent cannot
+    judge risk or act without guessing. Every handoff answers the five W's
+    and, when there is a request, ends with an explicit ASK (a question the
+    receiver can act on). who=owner, what=action+files, when=timing/urgency,
+    how=method/verify, why=motivation, ask=open question for the other lane.
+    """
+    who = " ".join(who.split()) or "Cline (perf lane)"
+    parts = [f"{kind} by {who}: {' '.join(what.split())}"]
+    if when:
+        parts.append(f"WHEN: {' '.join(when.split())}")
+    if how:
+        parts.append(f"HOW: {' '.join(how.split())}")
+    if why:
+        parts.append(f"WHY: {' '.join(why.split())}")
+    if ask:
+        parts.append(f"ASK: {' '.join(ask.split())}")
+    body = " | ".join(parts)
+    line = f"- {datetime.now().strftime('%Y-%m-%d %H:%M')} {body}\n"
+    try:
+        open(COORD, "a", encoding="utf-8").write(line)
+        print(f"logged: {line.strip()}")
+        return 0
+    except OSError as e:
+        print(f"msg failed: {e}", file=sys.stderr)
+        return 1
+
+def _flagval(flag: str, default: str = "") -> str:
+    """Pull '--flag value' out of argv (value may contain spaces if quoted).
+
+    A flag used bare (next token is another --flag) returns the default, so a
+    trigger flag never swallows a following flag as its value.
+    """
+    if flag in sys.argv:
+        i = sys.argv.index(flag)
+        if i + 1 < len(sys.argv) and not sys.argv[i + 1].startswith("--"):
+            return sys.argv[i + 1]
+    return default
+
 def main() -> int:
+    if "--msg" in sys.argv or "--ask" in sys.argv:
+        kind = _flagval("--kind", "ASK" if ("--ask" in sys.argv and "--msg" not in sys.argv) else "MSG")
+        return cmd_msg(
+            who=_flagval("--who", "Cline (perf lane)"),
+            what=_flagval("--what", "(no what)"),
+            when=_flagval("--when"),
+            how=_flagval("--how"),
+            why=_flagval("--why"),
+            ask=_flagval("--q"),
+            kind=kind,
+        )
     if "--claim" in sys.argv:
         i = sys.argv.index("--claim")
         return cmd_claim(" ".join(sys.argv[i + 1:]) or "(no message)", "CLAIM")

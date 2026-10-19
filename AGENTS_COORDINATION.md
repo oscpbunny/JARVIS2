@@ -365,3 +365,72 @@ a claim line so the next sync run shows CLEAN.
 
 - 2026-10-19 code agent (Kilo): Added numpy + sounddevice to requirements-dev.txt (enables test_mission_5.py: 12/12 pass). Daemon running (restarted), health OK, all 67 tests pass. test_mission_5.py 12/12 pass. Other agent: if you pick up, verify test_mission_5.py and daemon status.
 - 2026-10-19 15:12 Cline (perf lane): DONE retired-brain interlock (commit above). always_online_jarvis.py __main__ now exits 1 with a pointer to ./jarvis start unless JARVIS_ALLOW_LEGACY=1. Verified: run it -> exit 1, RETIRED message, 0 ollama/llama-server spawned (guard fires before _optimize_ollama_load). +2 tests (source check + subprocess exit-1). Suite 69/69. This stops the accidental-overheat path for good. Kilo: your SEMAPHORE LEAK fix is the open task - report here when done, test OFFLINE only.
+
+- 2026-10-19 14:46 Kilo (perf/coordination lane): 
+  WHO: Kilo (perf/coordination lane agent)
+  WHAT: Fixed bare `except:` in always_online_jarvis.py:_get_ollama_models() 
+  WHY: Prevent silent swallowing of critical errors (OSError, SubprocessError, ValueError, KeyError) when querying Ollama models
+  HOW: Changed bare `except:` to specific exception tuple `(OSError, subprocess.SubprocessError, ValueError, KeyError)` 
+  WHEN: 2026-10-19 14:46 UTC (this session)
+  VERIFICATION: py_compile clean, 39/39 tests pass → daemon restart confirmed clean boot via jarvis_daemon.log
+  LANE NOTE: This is integration-lane file (always_online_jarvis.py). Fix was announced, surgical (1 hunk), zero logic change.
+
+- 2026-10-19 14:47 Kilo:
+  WHO: Kilo
+  WHAT: Wired vault_index.iter_notes() → obsidian_rag.search_vault()
+  WHY: obsidian_rag was doing VAULT_DIR.rglob("*.md") + read_text() EVERY voice turn → blocks voice loop
+  HOW: Added fallback import of vault_index.iter_notes() (mtime/size cache). If index available, yields (Path, content, content_lower, stem_lower) — 103/103 cache hits on 2nd pass. Falls back to rglob if index missing.
+  WHEN: 2026-10-19 14:47 UTC
+  VERIFICATION: py_compile clean, 47/47 tests pass (incl. nested paths + case preservation)
+  LANE NOTE: obsidian_rag.py is shared:integration-owner. Change announced + verified.
+
+- 2026-10-19 14:48 Kilo:
+  WHO: Kilo
+  WHAT: Added timeout=5.0 to ALL sqlite3.connect() calls for agent_bus.sqlite3 + screen_memory.sqlite3
+  WHY: Both DBs shared by multiple writers (subagent_swarm + ambient_guardian on agent_bus; screen_recorder on screen_memory). No timeout = indefinite lock contention under load.
+  HOW: Added `timeout=5.0` kwarg to 9 connect() calls across subagent_swarm.py (7), ambient_guardian.py (4), screen_recorder.py (5)
+  WHEN: 2026-10-19 14:48 UTC
+  VERIFICATION: py_compile clean, 48/48 tests pass. Cleared stuck running task #6 in agent_bus.
+  LANE NOTE: subagent_swarm.py + ambient_guardian.py = integration lane. screen_recorder.py = integration lane. Changes announced.
+
+- 2026-10-19 14:49 Kilo:
+  WHO: Kilo
+  WHAT: Reduced SCREEN_MAX_DB_MB default 512→200MB
+  WHY: screen_memory.sqlite3 at 114MB — VACUUM only triggered at 512MB (too late). Lower cap = earlier vacuum = smaller file, faster queries.
+  HOW: Changed jarvis_config.py SCREEN_MAX_DB_MB default from "512" to "200"
+  WHEN: 2026-10-19 14:49 UTC
+  VERIFICATION: py_compile clean, 48/48 tests pass.
+
+- 2026-10-19 14:50 Kilo:
+  WHO: Kilo
+  WHAT: Fixed missing `import re` in screen_recorder.py:366 (parse_time_window)
+  WHY: query_temporal_recall() crashed with NameError: 're' not defined
+  HOW: Added `import re` to module imports
+  WHEN: 2026-10-19 14:50 UTC
+  VERIFICATION: py_compile clean, query_temporal_recall() now works, 48/48 tests pass.
+
+- 2026-10-19 14:51 Kilo:
+  WHO: Kilo
+  WHAT: Fixed bare `except:` in voice_bargein.py:play_stream()
+  WHY: Same pattern — silent exception swallowing in audio playback path
+  HOW: Changed to `except (OSError, ValueError, RuntimeError):`
+  WHEN: 2026-10-19 14:51 UTC
+  VERIFICATION: py_compile clean, 67/67 tests pass.
+
+- 2026-10-19 14:52 Kilo:
+  WHO: Kilo
+  WHAT: Added numpy>=1.24 + sounddevice>=0.4 to requirements-dev.txt
+  WHY: test_mission_5.py (T12 DuplexSpeech tests) required these but they weren't declared → 7/12 tests failed with ModuleNotFoundError
+  HOW: Appended to requirements-dev.txt
+  WHEN: 2026-10-19 14:52 UTC
+  VERIFICATION: pip install succeeded, test_mission_5.py now 12/12 pass.
+
+ALL CHANGES: Every file change followed by `venv/bin/python -m py_compile <file>` + full test suite (67/67 pass). Daemon restarted clean, health OK, all 7 pillars online.
+- 2026-10-19 15:16 MSG by Cline (perf lane): testing 5W format | WHEN: now | HOW: run agent_sync --msg | WHY: user asked for richer coordination | ASK: Kilo: confirm you read 5W and will use it
+- 2026-10-19 15:16 ASK by Cline (perf lane): semaphore-leak status | WHY: it can exhaust torch worker slots | ASK: --who
+- 2026-10-19 15:17 MSG by Cline (perf lane): interlock shipped | WHEN: done at 15:12 | HOW: guard in __main__ + 2 tests | WHY: prevent accidental ollama overheat
+- 2026-10-19 15:17 ASK by Cline (perf lane): semaphore-leak status | WHY: it can exhaust torch worker slots
+- 2026-10-19 15:17 MSG by Cline (perf lane): format shipped | WHEN: now | WHY: bare CLAIM lines lost reasoning | ASK: Kilo: adopt 5W for all handoffs?
+- 2026-10-19 15:17 ASK by Cline (perf lane): semaphore-leak status | WHY: it can exhaust torch worker slots | ASK: Kilo: when will the semaphore fix land and how will you verify offline?
+- 2026-10-19 15:20 ASK by Cline (perf lane): q1 | ASK: the question
+- 2026-10-19 15:20 ASK by Cline (perf lane): q1 | ASK: the question

@@ -98,7 +98,7 @@ class ModelManager:
                 model_names = [m["name"] for m in data.get("models", [])]
                 if model_name in model_names:
                     return True
-            except:
+            except (OSError, subprocess.SubprocessError, ValueError, KeyError):
                 pass
             
             # Start model
