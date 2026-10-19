@@ -1242,7 +1242,6 @@ def find_element_by_vision(description: str, ollama_url: str = "http://localhost
     try:
         b64_img, screen_w, screen_h = capture_screen_base64()
     except Exception as e:
-        print(f"[Vision Grounding Error]: Screen capture failed: {e}")
         _log().warning("[Vision Grounding Error]: Screen capture failed: %s", e)
         return None
 
@@ -1277,19 +1276,15 @@ def find_element_by_vision(description: str, ollama_url: str = "http://localhost
                 # Safety gate: moondream hallucinates coords for absent
                 # targets; refuse to hand them to a clicker (fail closed).
                 if not _vision_confirms_exists(description, b64_img, ollama_url):
-                    print(f"[Vision Gate]: '{description}' not confirmed visible; refusing coords.")
                     _log().warning("[Vision Gate]: '%s' coords %s not confirmed visible; refusing.",
                                    description, coords)
                     return None
                 return coords
-            print(f"[Vision Grounding]: unparseable moondream response: "
-                  f"{(response_text or '')[:120]!r}")
             _log().warning("[Vision Grounding]: unparseable moondream response: %r",
                            (response_text or "")[:120])
             return None
 
     except Exception as e:
-        print(f"[Vision Grounding Error]: Ollama moondream query failed: {e}")
         _log().warning("[Vision Grounding Error]: Ollama moondream query failed: %s", e)
 
     return None

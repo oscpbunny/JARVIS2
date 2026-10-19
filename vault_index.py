@@ -104,4 +104,10 @@ def iter_notes() -> Iterator[Tuple[Path, str, str, str]]:
 
 if __name__ == "__main__":
     n = sum(1 for _ in iter_notes())
-    print(f"vault={VAULT_DIR} notes={n} {stats()}")
+    try:
+        from jarvis_log import get_logger
+        log = get_logger("vault_index")
+    except Exception:
+        import logging as _logging
+        log = _logging.getLogger("vault_index")
+    log.info("vault=%s notes=%s %s", VAULT_DIR, n, stats())

@@ -33,12 +33,9 @@ def get_selected_text() -> str | None:
 
 if __name__ == "__main__":
     log.info("Testing code inspection on active selection...")
-    print("Testing code inspection on active selection...")
     selection = get_selected_text()
     if selection:
         msg = f"Selected ({len(selection)} chars):\n{selection[:200]}"
-        print(msg)
         log.info("%s", msg)
     else:
-        print("No active text selection detected.")
         log.info("No active text selection detected.")

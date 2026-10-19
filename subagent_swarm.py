@@ -257,8 +257,7 @@ if __name__ == "__main__":
     init_bus()
     if len(sys.argv) > 1 and sys.argv[1] == "dispatch":
         t_id = dispatch_task(sys.argv[2], " ".join(sys.argv[3:]))
-        print(f"Dispatched task #{t_id}")
+        log.info("Dispatched task #%s", t_id)
     else:
-        print("[🐝 SUBAGENT SWARM ONLINE]")
         log.info("[🐝 SUBAGENT SWARM ONLINE]")
         asyncio.run(swarm_worker_loop())

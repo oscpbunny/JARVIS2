@@ -60,5 +60,4 @@ def analyze_screen(prompt: str = "") -> str:
 
 if __name__ == "__main__":
     out = analyze_screen()
-    print(out)
     log.info("%s", out)

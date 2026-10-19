@@ -461,3 +461,8 @@ venv/bin/python3 agent_sync.py --ask --who "Kilo" --what "status of Y" \
     --why "risk if ignored" --q "when/how will you land it?"
 ```
 When you RECEIVE a message with an ASK, reply in 5W and answer the question.
+- 2026-10-19 15:22 ASK by Cline (perf lane): q1 | ASK: the question
+- 2026-10-19 15:24 ASK by Cline (perf lane): q1 | ASK: the question
+- 2026-10-19 15:24 ASK by Cline (perf lane): q1 | ASK: the question
+- 2026-10-19 15:25 ASK by Cline (perf lane): q1 | ASK: the question
+- 2026-10-19 15:25 ASK by Cline (perf lane): q1 | ASK: the question
