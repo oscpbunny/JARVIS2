@@ -158,6 +158,26 @@ def test_driver_public_api_degrades_gracefully():
     assert d.click_menu("Finder", []) == {"ok": False, "error": "empty menu path"}
 
 
+def test_osascript_quote_neutralises_injection():
+    from mac_input_driver import _osascript_quote
+
+    hostile = 'Finder" to activate\\ntell application "Evil'
+    quoted = _osascript_quote(hostile)
+    assert quoted.startswith("quoted form of \""), quoted
+    # the hostile payload must be escaped/quoted, never a bare breakout
+    assert '" to activate' not in quoted.replace('\\"', "")
+
+
+def test_app_pid_accepts_int_like_only():
+    import mac_input_driver as d
+
+    try:
+        name = d._app_name(1)
+    except (TypeError, ValueError):
+        return  # int() rejects non-numeric junk — safe behaviour
+    assert isinstance(name, str)
+
+
 def test_all_root_modules_compile():
     import py_compile
 

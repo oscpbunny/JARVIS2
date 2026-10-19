@@ -657,9 +657,26 @@ def davinci_render_youtube_4k() -> dict:
             "note": "Render flow is best-effort; confirm by voice once the queue starts."}
 
 
+# --------------------------------------------------------------------------
+# AppleScript string safety
+# --------------------------------------------------------------------------
+
+def _osascript_quote(s: str) -> str:
+    """Quote an arbitrary string as an AppleScript literal.
+
+    `quoted form of` is AppleScript's native safe-string primitive: even a
+    hostile app_name (embedded quotes, backslashes, `tell` verbs) becomes an
+    inert string operand. Never substitute shell escaping (shlex.quote) here —
+    it is the wrong quoting domain and leaves `"` breakout reachable.
+    """
+    escaped = str(s).replace("\\", "\\\\").replace('"', '\\"')
+    return f'quoted form of "{escaped}"'
+
+
 def ensure_front(app_name: str, path: str) -> dict:
     """Activate an app (launching it if needed) and bring it to the front."""
-    res = subprocess.run(["osascript", "-e", f'tell application "{app_name}" to activate'],
+    res = subprocess.run(["osascript", "-e",
+                          f'tell application {_osascript_quote(app_name)} to activate'],
                          capture_output=True, text=True, timeout=10)
     if res.returncode != 0:
         r = subprocess.run(["open", "-a", path], capture_output=True, text=True)
@@ -697,7 +714,7 @@ def _app_name(pid: int) -> str:
     try:
         res = subprocess.run(
             ["osascript", "-e",
-             f'tell application "System Events" to get name of first application process whose unix id is {pid}'],
+             f'tell application "System Events" to get name of first application process whose unix id is {int(pid)}'],
             capture_output=True, text=True, timeout=5)
         return res.stdout.strip() or "Unknown"
     except Exception:
@@ -708,7 +725,7 @@ def _pid_for(app_name: str) -> int | None:
     try:
         res = subprocess.run(
             ["osascript", "-e",
-             f'tell application "System Events" to get unix id of first application process whose name contains "{app_name}"'],
+             f'tell application "System Events" to get unix id of first application process whose name contains {_osascript_quote(app_name)}'],
             capture_output=True, text=True, timeout=5)
         return int(res.stdout.strip()) if res.returncode == 0 and res.stdout.strip() else None
     except Exception:
@@ -925,7 +942,7 @@ def focus_app_window(app_name: str, window_title_regex: str | None = None) -> di
             except Exception:
                 pass
         subprocess.run(["osascript", "-e",
-                        f'tell application "System Events" to set frontmost of first application process whose unix id is {pid} to true'],
+                        f'tell application "System Events" to set frontmost of first application process whose unix id is {int(pid)} to true'],
                        capture_output=True, timeout=5)
         title = _ax_attr(target, "AXTitle") if target is not None else None
         return {"ok": True, "app": app_name, "window": title or "frontmost"}
@@ -933,7 +950,7 @@ def focus_app_window(app_name: str, window_title_regex: str | None = None) -> di
         # Last-resort fallback: plain activate.
         try:
             subprocess.run(["osascript", "-e",
-                            f'tell application "{app_name}" to activate'],
+                            f'tell application {_osascript_quote(app_name)} to activate'],
                            capture_output=True, timeout=10)
             return {"ok": True, "app": app_name, "window": "activate-fallback"}
         except Exception:
