@@ -214,10 +214,12 @@ class TestLegacyBrainInterlock:
 
     def test_refuses_to_run_without_override(self):
         import subprocess as _sp
+        import sys
+        from pathlib import Path
+        # Use venv python if it exists (has kokoro), else use sys.executable
+        python = str(ROOT / "venv" / "bin" / "python") if (ROOT / "venv").exists() else sys.executable
         r = _sp.run(
-            # sys.executable (not a hardcoded venv path) so this runs on CI,
-            # where pytest uses the setup-python interpreter with no ./venv.
-            [sys.executable, str(ROOT / "always_online_jarvis.py")],
+            [python, str(ROOT / "always_online_jarvis.py")],
             capture_output=True, text=True, timeout=60,
             env={"PATH": "/usr/bin:/bin"},  # no JARVIS_ALLOW_LEGACY
         )
