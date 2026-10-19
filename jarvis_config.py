@@ -51,3 +51,11 @@ EMBED_MODEL = os.environ.get("JARVIS_EMBED_MODEL", "qwen3-embedding:8b")
 MAX_MESSAGE_HISTORY = int(os.environ.get("JARVIS_MAX_HISTORY", "40"))
 MAX_WORKERS = int(os.environ.get("JARVIS_MAX_WORKERS", "3"))
 CLEANUP_INTERVAL = int(os.environ.get("JARVIS_CLEANUP_INTERVAL", "300"))
+
+# ── Screen recall (pillar 4) tunables ─────────────────────────────────────────
+SCREEN_CAPTURE_INTERVAL = int(os.environ.get("JARVIS_SCREEN_INTERVAL", "15"))
+# Rolling retention: frames older than this are pruned on every ingest.
+SCREEN_RETENTION_DAYS = int(os.environ.get("JARVIS_SCREEN_RETENTION_DAYS", "7"))
+# Hard caps that trigger pruning even for fresh frames: row count and DB bytes.
+SCREEN_MAX_FRAMES = int(os.environ.get("JARVIS_SCREEN_MAX_FRAMES", "20000"))
+SCREEN_MAX_DB_MB = int(os.environ.get("JARVIS_SCREEN_MAX_DB_MB", "512"))

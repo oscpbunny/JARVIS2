@@ -22,21 +22,47 @@ import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta
 
-# PyObjC Quartz and Vision frameworks
-from Quartz import (
-    CGRectNull,
-    CGWindowListCreateImage,
-    kCGWindowListOptionOnScreenOnly,
-    kCGNullWindowID,
-    kCGWindowImageDefault
-)
-import Vision
+# PyObjC Quartz and Vision frameworks — macOS only. Guard the import so the
+# module still loads on Linux/Windows (CI, headless testing); OCR functions
+# degrade gracefully via the try/except in ocr_screen().
+try:
+    from Quartz import (
+        CGRectNull,
+        CGWindowListCreateImage,
+        kCGWindowListOptionOnScreenOnly,
+        kCGNullWindowID,
+        kCGWindowImageDefault
+    )
+    import Vision
+    _QUARTZ_AVAILABLE = True
+except ImportError:  # pragma: no cover — non-macOS platforms
+    _QUARTZ_AVAILABLE = False
 
-ROOT = Path(__file__).resolve().parent
+import struct
+
+try:
+    from jarvis_config import (
+        ROOT as _CONFIG_ROOT,
+        OLLAMA_URL as _CONFIG_OLLAMA_URL,
+        EMBED_MODEL as _CONFIG_EMBED_MODEL,
+        SCREEN_CAPTURE_INTERVAL as _CONFIG_INTERVAL,
+        SCREEN_RETENTION_DAYS as _CONFIG_RETENTION_DAYS,
+        SCREEN_MAX_FRAMES as _CONFIG_MAX_FRAMES,
+        SCREEN_MAX_DB_MB as _CONFIG_MAX_DB_MB,
+    )
+except ImportError:  # standalone use without the config module
+    _CONFIG_ROOT = _CONFIG_OLLAMA_URL = _CONFIG_EMBED_MODEL = None
+    _CONFIG_INTERVAL = _CONFIG_RETENTION_DAYS = None
+    _CONFIG_MAX_FRAMES = _CONFIG_MAX_DB_MB = None
+
+ROOT = _CONFIG_ROOT or Path(__file__).resolve().parent
 DB_PATH = ROOT / "screen_memory.sqlite3"
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-EMBED_MODEL = os.environ.get("JARVIS_EMBED_MODEL", "qwen3-embedding:8b")
-CAPTURE_INTERVAL = 15  # seconds
+OLLAMA_URL = os.environ.get("OLLAMA_URL", _CONFIG_OLLAMA_URL or "http://localhost:11434")
+EMBED_MODEL = os.environ.get("JARVIS_EMBED_MODEL", _CONFIG_EMBED_MODEL or "qwen3-embedding:8b")
+CAPTURE_INTERVAL = _CONFIG_INTERVAL or 15  # seconds
+RETENTION_SECONDS = (_CONFIG_RETENTION_DAYS or 7) * 86400
+MAX_FRAMES = _CONFIG_MAX_FRAMES or 20000
+MAX_DB_BYTES = (_CONFIG_MAX_DB_MB or 512) * 1024 * 1024
 
 _running = False
 _thread = None
@@ -50,10 +76,56 @@ _STOPWORDS = {
 }
 
 
+# ─── Binary embedding helpers ───────────────────────────────────────────────
+# qwen3-embedding:8b returns 4096 floats. As JSON text that is ~92 KB/row;
+# packed as float32 little-endian it is exactly 16 KB (~5.7x smaller) and
+# decodes faster (struct.unpack instead of json.loads). Old JSON rows are
+# still readable — see _decode_embedding().
+
+_EMB_FORMAT_CACHE: dict[int, str] = {}
+
+
+def _pack_embedding(vec: list[float]) -> bytes:
+    """Pack a float list as little-endian float32 bytes."""
+    n = len(vec)
+    fmt = _EMB_FORMAT_CACHE.get(n)
+    if fmt is None:
+        fmt = f"<{n}f"
+        _EMB_FORMAT_CACHE[n] = fmt
+    return struct.pack(fmt, *vec)
+
+
+def _decode_embedding(raw) -> list[float] | None:
+    """Decode an embedding stored as BLOB bytes (new) or JSON text (legacy).
+
+    Returns None when the value is empty or undecodable.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, bytes):
+        try:
+            n = len(raw) // 4
+            return list(struct.unpack(f"<{n}f", raw))
+        except struct.error:
+            return None
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return None
+    return None
+
+
 # ─── DB Bootstrap ─────────────────────────────────────────────────────────────
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
+    # WAL mode: readers (query_temporal_recall) no longer block the writer
+    # (ingest_frame) and vice versa. Safe for a single-host daemon.
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.Error:
+        pass
     conn.execute("""
         CREATE TABLE IF NOT EXISTS screen_frames (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,12 +134,65 @@ def init_db():
             window_title TEXT,
             ocr_text     TEXT,
             frame_hash   TEXT,
-            embedding    TEXT
+            embedding    BLOB
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_screen_ts ON screen_frames(timestamp)")
     conn.commit()
     conn.close()
+
+
+def prune_db(conn: sqlite3.Connection | None = None) -> dict:
+    """Enforce the three retention caps: age, row count, and DB file size.
+
+    Returns a dict with what was pruned, e.g.
+    ``{"ok": True, "deleted_by_age": 3, "deleted_by_count": 0}``.
+    Accepts an open connection (reuses it, does NOT commit/close) or opens
+    its own when ``conn`` is None.
+    """
+    stats: dict = {"ok": True, "deleted_by_age": 0, "deleted_by_count": 0}
+    own_conn = conn is None
+    if own_conn:
+        conn = sqlite3.connect(DB_PATH)
+    try:
+        cutoff = time.time() - RETENTION_SECONDS
+        cur = conn.execute(
+            "DELETE FROM screen_frames WHERE timestamp < ?", (cutoff,)
+        )
+        stats["deleted_by_age"] = cur.rowcount or 0
+
+        # Row-count cap: keep the newest MAX_FRAMES rows.
+        total = conn.execute("SELECT COUNT(*) FROM screen_frames").fetchone()[0]
+        if total > MAX_FRAMES:
+            excess = total - MAX_FRAMES
+            cur = conn.execute(
+                "DELETE FROM screen_frames WHERE id IN ("
+                "SELECT id FROM screen_frames ORDER BY timestamp ASC LIMIT ?)",
+                (excess,),
+            )
+            stats["deleted_by_count"] = cur.rowcount or 0
+
+        if own_conn:
+            conn.commit()
+    except sqlite3.Error as e:
+        stats = {"ok": False, "error": str(e)}
+        if own_conn:
+            conn.rollback()
+    finally:
+        if own_conn:
+            conn.close()
+
+    # Size cap: VACUUM only when the file is actually oversized, because
+    # VACUUM rewrites the whole DB (slow on 100+ MB files) and needs its own
+    # connection outside any transaction.
+    try:
+        if DB_PATH.exists() and DB_PATH.stat().st_size > MAX_DB_BYTES:
+            with sqlite3.connect(DB_PATH) as vc:
+                vc.execute("VACUUM")
+            stats["vacuumed"] = True
+    except (sqlite3.Error, OSError):
+        pass
+    return stats
 
 
 # ─── Active Window Perception ────────────────────────────────────────────────
@@ -103,6 +228,8 @@ def get_active_window_info() -> tuple[str, str]:
 
 def ocr_screen() -> tuple[str, str]:
     """Captures screen in-memory via Quartz and runs Vision OCR on ANE."""
+    if not _QUARTZ_AVAILABLE:
+        return "", ""
     try:
         cg_image = CGWindowListCreateImage(
             CGRectNull,
@@ -177,19 +304,25 @@ def ingest_frame():
 
     app_name, win_title = get_active_window_info()
     emb = get_embedding(f"{app_name} {win_title}: {ocr_text[:300]}")
-    emb_json = json.dumps(emb) if emb else None
+    # Binary float32 blob: ~16 KB/row for 4096-dim embeddings instead of
+    # ~92 KB as JSON text. Legacy JSON rows remain readable (see _decode_embedding).
+    emb_blob = _pack_embedding(emb) if emb else None
 
     conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        "INSERT INTO screen_frames (timestamp, app_name, window_title, ocr_text, frame_hash, embedding) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (time.time(), app_name, win_title, ocr_text, h, emb_json)
-    )
-    # Rolling retention: prune frames older than 7 days (604,800s)
-    cutoff = time.time() - (7 * 86400)
-    conn.execute("DELETE FROM screen_frames WHERE timestamp < ?", (cutoff,))
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute(
+            "INSERT INTO screen_frames (timestamp, app_name, window_title, ocr_text, frame_hash, embedding) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (time.time(), app_name, win_title, ocr_text, h, emb_blob)
+        )
+        # Rolling retention: age cap + row-count cap on the same connection
+        # (no extra open/close per frame).
+        prune_db(conn)
+        conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
+    finally:
+        conn.close()
 
 
 def _daemon_loop():
@@ -289,7 +422,10 @@ def query_temporal_recall(natural_query: str) -> str:
         cos_score = 0.0
         if query_emb and emb_raw:
             try:
-                cos_score = cosine_similarity(query_emb, json.loads(emb_raw)) * 5.0
+                # _decode_embedding handles both new BLOB rows and legacy JSON rows.
+                stored = _decode_embedding(emb_raw)
+                if stored:
+                    cos_score = cosine_similarity(query_emb, stored) * 5.0
             except Exception:
                 pass
         total_score = kw_score + cos_score
