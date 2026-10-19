@@ -149,6 +149,18 @@ stop)
   done
   pkill -f "backtalk.main" 2>/dev/null
   pkill -f "always_online_jarvis.py" 2>/dev/null
+  # always_online_jarvis._start_model() spawns `ollama serve` with
+  # start_new_session=True (fully detached) + `ollama run <model>` which holds
+  # multi-GB models in RAM (llama-server). None of these die with the parent,
+  # and skipping them is exactly what left the user's Mac hot after a stop.
+  # Unload models first (frees the RAM), then kill any detached server.
+  if command -v ollama >/dev/null 2>&1; then
+    for _m in $(curl -s http://localhost:11434/api/tags 2>/dev/null | grep -o '"name":"[^"]*"' | cut -d'"' -f4); do
+      ollama stop "$_m" 2>/dev/null
+    done
+    pkill -f "ollama/llama-server" 2>/dev/null
+    pkill -x "ollama" 2>/dev/null
+  fi
   rm -f "$VOICE_PIDFILE" "$BRAIN_PIDFILE" "$FACE_PIDFILE" "$HANDS_PIDFILE"
   echo "Jarvis stopped."
   ;;
